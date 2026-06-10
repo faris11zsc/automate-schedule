@@ -13,25 +13,44 @@ HOW TO CONTROL (everything in Notion, nothing else needed):
 import os, requests, pytz
 from datetime import datetime, timedelta, timezone
 
-COMPOSIO_KEY = os.environ["COMPOSIO_API_KEY"]
-DATABASE_ID  = "5cb27942-1b67-4dc6-9de4-e9e72dafbbea"
-WA_PHONE_ID  = "1174887119037886"
-WINDOW       = (28, 32)   # send when session is this many minutes away
-DEDUP_HOURS  = 18         # safety net: never re-send within this window
+NOTION_TOKEN   = os.environ.get("NOTION_TOKEN")
+WHATSAPP_TOKEN = os.environ.get("WHATSAPP_TOKEN")
+DATABASE_ID    = "5cb27942-1b67-4dc6-9de4-e9e72dafbbea"
+WA_PHONE_ID    = "1159688090561775"
+WINDOW         = (28, 32)   # send when session is this many minutes away
+DEDUP_HOURS    = 18         # safety net: never re-send within this window
 
-# ── Composio API ──────────────────────────────────────────────────────
-def cx(action, params):
-    r = requests.post(
-        f"https://backend.composio.dev/api/v2/actions/{action}/execute",
-        headers={"x-api-key": COMPOSIO_KEY, "Content-Type": "application/json"},
-        json={"entityId": "default", "input": params},
-        timeout=30
-    )
+# ── Direct APIs ───────────────────────────────────────────────────────
+def notion_query_database():
+    headers = {
+        "Authorization": f"Bearer {NOTION_TOKEN}",
+        "Notion-Version": "2022-06-28",
+        "Content-Type": "application/json"
+    }
+    data = {
+        "filter": {"property": "Status", "select": {"equals": "Active"}},
+        "page_size": 100
+    }
+    r = requests.post(f"https://api.notion.com/v1/databases/{DATABASE_ID}/query", headers=headers, json=data, timeout=30)
     r.raise_for_status()
-    return r.json().get("response", {}).get("data", {})
+    return r.json()
 
 def notion_update(row_id, props):
-    cx("NOTION_UPDATE_ROW_DATABASE", {"row_id": row_id, "properties": props})
+    headers = {
+        "Authorization": f"Bearer {NOTION_TOKEN}",
+        "Notion-Version": "2022-06-28",
+        "Content-Type": "application/json"
+    }
+    properties = {}
+    for p in props:
+        name, ptype, val = p["name"], p["type"], p["value"]
+        if ptype == "checkbox":
+            properties[name] = {"checkbox": True if val == "True" else False}
+        elif ptype == "date":
+            properties[name] = {"date": {"start": val} if val else None}
+            
+    r = requests.patch(f"https://api.notion.com/v1/pages/{row_id}", headers=headers, json={"properties": properties}, timeout=30)
+    r.raise_for_status()
 
 # ── Timezone ──────────────────────────────────────────────────────────
 TZ_ALIAS = {
@@ -115,12 +134,12 @@ def already_sent(last_str, session_dt):
 # ── Main ──────────────────────────────────────────────────────────────
 def run():
     now  = datetime.now(timezone.utc)
-    data = cx("NOTION_QUERY_DATABASE_WITH_FILTER", {
-        "database_id": DATABASE_ID,
-        "filter": {"property": "Status", "select": {"equals": "Active"}},
-        "page_size": 100
-    })
-    rows = data.get("results", [])
+    try:
+        data = notion_query_database()
+        rows = data.get("results", [])
+    except Exception as e:
+        print(f"Failed to fetch Notion Database: {e}")
+        return
     print(f"{now.strftime('%a %Y-%m-%d %H:%M UTC')} — {len(rows)} active students\n")
 
     for row in rows:
@@ -209,15 +228,25 @@ def run():
 def _send(row_id, name, wa, session_dt, tz_s, now):
     num = wa.replace("+","").replace(" ","").replace("-","").replace("(","").replace(")","")
     msg = f"Hi! Your session starts in 30 minutes at {fmt(session_dt, tz_s)}. See you soon!"
-    result = cx("WHATSAPP_SEND_MESSAGE", {
-        "phone_number_id": WA_PHONE_ID,
-        "to_number": num,
-        "text": msg
-    })
-    if result:
+    
+    headers = {
+        "Authorization": f"Bearer {WHATSAPP_TOKEN}",
+        "Content-Type": "application/json"
+    }
+    data = {
+        "messaging_product": "whatsapp",
+        "recipient_type": "individual",
+        "to": num,
+        "type": "text",
+        "text": {"body": msg}
+    }
+    
+    r = requests.post(f"https://graph.facebook.com/v20.0/{WA_PHONE_ID}/messages", headers=headers, json=data, timeout=30)
+    
+    if r.status_code == 200:
         notion_update(row_id, [{"name":"Last Reminded At","type":"date","value":to_iso(now)}])
         print(f"   ✓ Sent to {name}")
     else:
-        print(f"   ✗ Failed for {name}")
+        print(f"   ✗ Failed for {name}: {r.text}")
 
 run()

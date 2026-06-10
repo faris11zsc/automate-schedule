@@ -23,5 +23,6 @@ jobs:
 
       - name: Run script
         env:
-          COMPOSIO_API_KEY: ${{ secrets.COMPOSIO_API_KEY }}
+          NOTION_TOKEN: ${{ secrets.NOTION_TOKEN }}
+          WHATSAPP_TOKEN: ${{ secrets.WHATSAPP_TOKEN }}
         run: python wa_reminder.py
