@@ -1,0 +1,223 @@
+#!/usr/bin/env python3
+"""
+WhatsApp Session Reminder — GitHub Actions, runs every 5 minutes.
+Needs: COMPOSIO_API_KEY as a GitHub secret.
+
+HOW TO CONTROL (everything in Notion, nothing else needed):
+  Status       Paused / Inactive  → no reminders
+  Skip Next    ✅ check           → cancels next session; auto-clears after it passes
+  Override Time  pick a date      → one-time reschedule; auto-clears after it passes
+  Everything else (schedule, timezone, number) → just edit in Notion, picked up instantly
+"""
+
+import os, requests, pytz
+from datetime import datetime, timedelta, timezone
+
+COMPOSIO_KEY = os.environ["COMPOSIO_API_KEY"]
+DATABASE_ID  = "5cb27942-1b67-4dc6-9de4-e9e72dafbbea"
+WA_PHONE_ID  = "1174887119037886"
+WINDOW       = (28, 32)   # send when session is this many minutes away
+DEDUP_HOURS  = 18         # safety net: never re-send within this window
+
+# ── Composio API ──────────────────────────────────────────────────────
+def cx(action, params):
+    r = requests.post(
+        f"https://backend.composio.dev/api/v2/actions/{action}/execute",
+        headers={"x-api-key": COMPOSIO_KEY, "Content-Type": "application/json"},
+        json={"entityId": "default", "input": params},
+        timeout=30
+    )
+    r.raise_for_status()
+    return r.json().get("response", {}).get("data", {})
+
+def notion_update(row_id, props):
+    cx("NOTION_UPDATE_ROW_DATABASE", {"row_id": row_id, "properties": props})
+
+# ── Timezone ──────────────────────────────────────────────────────────
+TZ_ALIAS = {
+    "london":"Europe/London","est":"America/New_York","et":"America/New_York",
+    "pst":"America/Los_Angeles","cairo":"Africa/Cairo","dubai":"Asia/Dubai",
+    "gmt":"UTC","utc":"UTC",
+}
+def norm_tz(s):
+    if not s: return "UTC"
+    k = s.strip().lower()
+    if k in TZ_ALIAS: return TZ_ALIAS[k]
+    try: pytz.timezone(s.strip()); return s.strip()
+    except: return "UTC"
+
+def fmt(dt, tz_s):
+    try: return dt.astimezone(pytz.timezone(norm_tz(tz_s))).strftime("%I:%M %p")
+    except: return dt.strftime("%H:%M UTC")
+
+def to_iso(dt):
+    return dt.strftime("%Y-%m-%dT%H:%M:%S+00:00")
+
+# ── Schedule parser ───────────────────────────────────────────────────
+DAYS = {"mo":0,"mon":0,"tu":1,"tue":1,"we":2,"wed":2,"th":3,"thu":3,
+        "fr":4,"fri":4,"sa":5,"sat":5,"su":6,"sun":6,"sum":6}
+
+def parse_time_str(s):
+    s = s.strip().lower()
+    pm, am = "pm" in s, "am" in s
+    s = s.replace("pm","").replace("am","").strip()
+    if ":" in s: h, m = int(s.split(":")[0]), int(s.split(":")[1])
+    else: h = int(s) if s.isdigit() else 12; m = 0
+    if pm and h < 12: h += 12
+    elif am and h == 12: h = 0
+    elif not am and not pm and 1 <= h <= 11: h += 12
+    return h, m
+
+def parse_schedule(sch, tz_s):
+    if not sch or not sch.strip(): return []
+    parts = sch.strip().split()
+    if len(parts) < 2: return []
+    days  = [d.strip() for d in parts[0].split(",")]
+    times = [t.strip() for t in parts[1].split(",")]
+    tz_n  = norm_tz(tz_s)
+    out   = []
+    for i, d in enumerate(days):
+        wd = DAYS.get(d.lower())
+        if wd is None: continue
+        t = times[i] if i < len(times) else times[-1]
+        try: h, m = parse_time_str(t); out.append((wd, h, m, tz_n))
+        except: pass
+    return out
+
+def next_recurring_utc(sessions, now):
+    best = None
+    for wd, h, m, tz_n in sessions:
+        try:
+            tz  = pytz.timezone(tz_n)
+            loc = now.astimezone(tz)
+            d   = (wd - loc.weekday()) % 7
+            c   = (loc + timedelta(days=d)).replace(hour=h, minute=m, second=0, microsecond=0)
+            if c <= loc + timedelta(minutes=1): c += timedelta(days=7)
+            u = c.astimezone(pytz.utc)
+            if best is None or u < best: best = u
+        except: pass
+    return best
+
+# ── Notion helpers ────────────────────────────────────────────────────
+def txt(prop, kind):
+    return "".join(t.get("plain_text","") for t in prop.get(kind,[]))
+
+def get_date(prop):
+    return ((prop or {}).get("date") or {}).get("start")
+
+def already_sent(last_str, session_dt):
+    if not last_str: return False
+    try:
+        last = datetime.fromisoformat(last_str.replace("Z","+00:00"))
+        return abs((session_dt - last).total_seconds()) / 3600 < DEDUP_HOURS
+    except: return False
+
+# ── Main ──────────────────────────────────────────────────────────────
+def run():
+    now  = datetime.now(timezone.utc)
+    data = cx("NOTION_QUERY_DATABASE_WITH_FILTER", {
+        "database_id": DATABASE_ID,
+        "filter": {"property": "Status", "select": {"equals": "Active"}},
+        "page_size": 100
+    })
+    rows = data.get("results", [])
+    print(f"{now.strftime('%a %Y-%m-%d %H:%M UTC')} — {len(rows)} active students\n")
+
+    for row in rows:
+        p    = row.get("properties", {})
+        rid  = row["id"]
+        name = txt(p.get("Student Name",{}), "title")
+        sch  = txt(p.get("schadule",{}),     "rich_text")
+        tz_s = txt(p.get("Timezone",{}),     "rich_text")
+        wa   = p.get("WhatsApp",{}).get("phone_number","")
+        lr   = get_date(p.get("Last Reminded At",{}))
+
+        skip_next     = p.get("Skip Next",{}).get("checkbox", False)
+        skip_until    = get_date(p.get("Skip Until",{}))
+        override_date = get_date(p.get("Override Time",{}))
+
+        print(f"── {name}")
+
+        if not wa:
+            print("   skip: no WhatsApp number"); continue
+
+        sessions = parse_schedule(sch, tz_s)
+
+        # ── CASE 1: Skip Next ✅ ──────────────────────────────────
+        if skip_next:
+            if not skip_until:
+                # First detection — record which session is being cancelled
+                nxt = next_recurring_utc(sessions, now)
+                if nxt:
+                    notion_update(rid, [{"name":"Skip Until","type":"date","value":to_iso(nxt)}])
+                    print(f"   Skip Next ✅ — cancelling session at {fmt(nxt, tz_s)}, will auto-clear after")
+                else:
+                    print("   Skip Next ✅ — no schedule to reference")
+            else:
+                skip_until_dt = datetime.fromisoformat(skip_until.replace("Z","+00:00"))
+                if now > skip_until_dt + timedelta(minutes=30):
+                    # Cancelled session has passed → auto-clear both fields
+                    notion_update(rid, [
+                        {"name": "Skip Next",  "type": "checkbox", "value": "False"},
+                        {"name": "Skip Until", "type": "date",     "value": None}
+                    ])
+                    print(f"   ↩ Cancelled session passed — Skip Next & Skip Until auto-cleared")
+                else:
+                    print(f"   Skip Next ✅ — session at {fmt(skip_until_dt, tz_s)} not yet passed, holding")
+            continue
+
+        # ── CASE 2: Override Time set → one-time reschedule ───────
+        if override_date:
+            try:
+                override_dt = datetime.fromisoformat(override_date.replace("Z","+00:00"))
+                if now > override_dt + timedelta(hours=1):
+                    # Override has passed → auto-clear
+                    notion_update(rid, [{"name":"Override Time","type":"date","value":None}])
+                    print("   Override Time passed — auto-cleared, falling through to schedule")
+                    # Fall through to normal schedule below
+                else:
+                    mins = (override_dt - now).total_seconds() / 60
+                    print(f"   Override → {fmt(override_dt, tz_s)} ({mins:.0f} min away)")
+                    if WINDOW[0] <= mins <= WINDOW[1]:
+                        if already_sent(lr, override_dt):
+                            print("   already reminded")
+                        else:
+                            _send(rid, name, wa, override_dt, tz_s, now)
+                            notion_update(rid, [{"name":"Override Time","type":"date","value":None}])
+                    else:
+                        print("   not in window")
+                    continue
+            except Exception as e:
+                print(f"   Override Time error: {e} — using recurring schedule")
+
+        # ── CASE 3: Normal recurring schedule ─────────────────────
+        nxt = next_recurring_utc(sessions, now)
+        if not nxt:
+            print("   skip: no parseable schedule"); continue
+
+        mins = (nxt - now).total_seconds() / 60
+        print(f"   Recurring → {fmt(nxt, tz_s)} ({mins:.0f} min away)")
+
+        if not (WINDOW[0] <= mins <= WINDOW[1]):
+            print("   not in window"); continue
+        if already_sent(lr, nxt):
+            print("   already reminded"); continue
+
+        _send(rid, name, wa, nxt, tz_s, now)
+        print()
+
+def _send(row_id, name, wa, session_dt, tz_s, now):
+    num = wa.replace("+","").replace(" ","").replace("-","").replace("(","").replace(")","")
+    msg = f"Hi! Your session starts in 30 minutes at {fmt(session_dt, tz_s)}. See you soon!"
+    result = cx("WHATSAPP_SEND_MESSAGE", {
+        "phone_number_id": WA_PHONE_ID,
+        "to_number": num,
+        "text": msg
+    })
+    if result:
+        notion_update(row_id, [{"name":"Last Reminded At","type":"date","value":to_iso(now)}])
+        print(f"   ✓ Sent to {name}")
+    else:
+        print(f"   ✗ Failed for {name}")
+
+run()
