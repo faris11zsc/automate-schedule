@@ -10,13 +10,14 @@ HOW TO CONTROL (everything in Notion, nothing else needed):
   Everything else (schedule, timezone, number) → just edit in Notion, picked up instantly
 """
 
-import os, requests, pytz
+import os, requests, pytz, smtplib
 from datetime import datetime, timedelta, timezone
+from email.mime.text import MIMEText
 
 NOTION_TOKEN   = os.environ.get("NOTION_TOKEN")
-WHATSAPP_TOKEN = os.environ.get("WHATSAPP_TOKEN")
+GMAIL_ADDRESS  = os.environ.get("GMAIL_ADDRESS")
+GMAIL_APP_PASSWORD = os.environ.get("GMAIL_APP_PASSWORD")
 DATABASE_ID    = "5cb27942-1b67-4dc6-9de4-e9e72dafbbea"
-WA_PHONE_ID    = "1159688090561775"
 WINDOW         = (28, 32)   # send when session is this many minutes away
 DEDUP_HOURS    = 18         # safety net: never re-send within this window
 
@@ -148,7 +149,8 @@ def run():
         name = txt(p.get("Student Name",{}), "title")
         sch  = txt(p.get("schadule",{}),     "rich_text")
         tz_s = txt(p.get("Timezone",{}),     "rich_text")
-        wa   = p.get("WhatsApp",{}).get("phone_number","")
+        em_prop = p.get("Email", {})
+        email_addr = em_prop.get("email") or txt(em_prop, "rich_text")
         lr   = get_date(p.get("Last Reminded At",{}))
 
         skip_next     = p.get("Skip Next",{}).get("checkbox", False)
@@ -157,8 +159,8 @@ def run():
 
         print(f"── {name}")
 
-        if not wa:
-            print("   skip: no WhatsApp number"); continue
+        if not email_addr:
+            print("   skip: no email address"); continue
 
         sessions = parse_schedule(sch, tz_s)
 
@@ -201,7 +203,7 @@ def run():
                         if already_sent(lr, override_dt):
                             print("   already reminded")
                         else:
-                            _send(rid, name, wa, override_dt, tz_s, now)
+                            _send(rid, name, email_addr, override_dt, tz_s, now)
                             notion_update(rid, [{"name":"Override Time","type":"date","value":None}])
                     else:
                         print("   not in window")
@@ -222,31 +224,24 @@ def run():
         if already_sent(lr, nxt):
             print("   already reminded"); continue
 
-        _send(rid, name, wa, nxt, tz_s, now)
+        _send(rid, name, email_addr, nxt, tz_s, now)
         print()
 
-def _send(row_id, name, wa, session_dt, tz_s, now):
-    num = wa.replace("+","").replace(" ","").replace("-","").replace("(","").replace(")","")
-    msg = f"Hi! Your session starts in 30 minutes at {fmt(session_dt, tz_s)}. See you soon!"
+def _send(row_id, name, email_addr, session_dt, tz_s, now):
+    msg_text = f"Hi {name},\n\nYour session starts in 30 minutes at {fmt(session_dt, tz_s)}.\n\nSee you soon!\n\nBest,\nFaris"
+    msg = MIMEText(msg_text)
+    msg['Subject'] = 'Upcoming Session Reminder'
+    msg['From'] = GMAIL_ADDRESS
+    msg['To'] = email_addr
     
-    headers = {
-        "Authorization": f"Bearer {WHATSAPP_TOKEN}",
-        "Content-Type": "application/json"
-    }
-    data = {
-        "messaging_product": "whatsapp",
-        "recipient_type": "individual",
-        "to": num,
-        "type": "text",
-        "text": {"body": msg}
-    }
-    
-    r = requests.post(f"https://graph.facebook.com/v20.0/{WA_PHONE_ID}/messages", headers=headers, json=data, timeout=30)
-    
-    if r.status_code == 200:
+    try:
+        with smtplib.SMTP_SSL('smtp.gmail.com', 465) as server:
+            server.login(GMAIL_ADDRESS, GMAIL_APP_PASSWORD)
+            server.send_message(msg)
+            
         notion_update(row_id, [{"name":"Last Reminded At","type":"date","value":to_iso(now)}])
-        print(f"   ✓ Sent to {name}")
-    else:
-        print(f"   ✗ Failed for {name}: {r.text}")
+        print(f"   ✓ Sent to {name} ({email_addr})")
+    except Exception as e:
+        print(f"   ✗ Failed for {name}: {e}")
 
 run()

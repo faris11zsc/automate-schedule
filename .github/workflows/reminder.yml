@@ -24,5 +24,6 @@ jobs:
       - name: Run script
         env:
           NOTION_TOKEN: ${{ secrets.NOTION_TOKEN }}
-          WHATSAPP_TOKEN: ${{ secrets.WHATSAPP_TOKEN }}
+          GMAIL_ADDRESS: ${{ secrets.GMAIL_ADDRESS }}
+          GMAIL_APP_PASSWORD: ${{ secrets.GMAIL_APP_PASSWORD }}
         run: python wa_reminder.py
