@@ -149,7 +149,7 @@ def run():
         name = txt(p.get("Student Name",{}), "title")
         sch  = txt(p.get("schadule",{}),     "rich_text")
         tz_s = txt(p.get("Timezone",{}),     "rich_text")
-        em_prop = p.get("Email", {})
+        em_prop = p.get("Email") or p.get("emails") or {}
         email_addr = em_prop.get("email") or txt(em_prop, "rich_text")
         lr   = get_date(p.get("Last Reminded At",{}))
 
