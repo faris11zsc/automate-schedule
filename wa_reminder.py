@@ -18,7 +18,7 @@ NOTION_TOKEN   = os.environ.get("NOTION_TOKEN")
 GMAIL_ADDRESS  = os.environ.get("GMAIL_ADDRESS")
 GMAIL_APP_PASSWORD = os.environ.get("GMAIL_APP_PASSWORD")
 DATABASE_ID    = "5cb27942-1b67-4dc6-9de4-e9e72dafbbea"
-WINDOW         = (28, 32)   # send when session is this many minutes away
+WINDOW         = (15, 45)   # send when session is this many minutes away
 DEDUP_HOURS    = 18         # safety net: never re-send within this window
 
 # ── Direct APIs ───────────────────────────────────────────────────────
@@ -229,7 +229,7 @@ def run():
 
 def _send(row_id, name, email_addr, session_dt, tz_s, now):
     msg_text = f"سلامُ عليكم {name},\n\nYour session starts in 30 minutes at {fmt(session_dt, tz_s)}.\n\nSee you soon!\n\nBest,\nFaris\n\n\nThis message is automated"
-    msg = MIMEText(msg_text)
+    msg = MIMEText(msg_text, 'plain', 'utf-8')
     msg['Subject'] = 'Upcoming Session Reminder'
     msg['From'] = GMAIL_ADDRESS
     msg['To'] = email_addr
