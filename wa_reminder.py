@@ -228,7 +228,7 @@ def run():
         print()
 
 def _send(row_id, name, email_addr, session_dt, tz_s, now):
-    msg_text = f"Hi {name},\n\nYour session starts in 30 minutes at {fmt(session_dt, tz_s)}.\n\nSee you soon!\n\nBest,\nFaris\n\nThis message is automated"
+    msg_text = f"سلامُ عليكم {name},\n\nYour session starts in 30 minutes at {fmt(session_dt, tz_s)}.\n\nSee you soon!\n\nBest,\nFaris\n\n\nThis message is automated"
     msg = MIMEText(msg_text)
     msg['Subject'] = 'Upcoming Session Reminder'
     msg['From'] = GMAIL_ADDRESS
