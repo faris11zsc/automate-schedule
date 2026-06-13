@@ -1,29 +1,30 @@
-# Automated WhatsApp Scheduler
+# Sasa Notion-Email Automation System 🛡️⚡
 
 ## Overview
-This project is an automated WhatsApp reminder system built for Faris. It connects a Notion Database to WhatsApp via the Composio API.
-It is scheduled to run every 5 minutes using GitHub Actions.
+This system automatically sends email reminders to Faris's students before their scheduled sessions. 
+It is controlled 100% via a Notion Database and runs on GitHub Actions (Cron). 
 
-## Key Files
-- `wa_reminder.py`: The core Python script that contains all the logic.
-- `.github/workflows/reminder.yml`: The GitHub Actions configuration that triggers the script every 5 minutes.
-- `requirements.txt`: Python dependencies (`requests`, `pytz`).
+**Critical Architecture Update:** This system originally used WhatsApp/Composio but was fully migrated to Gmail SMTP to avoid Meta API restrictions.
 
-## How it works
-1. GitHub Actions runs `wa_reminder.py` every 5 minutes.
-2. The script queries a specific Notion database looking for students with `Status = Active`.
-3. It calculates the next session time based on the student's `schadule` and `Timezone` properties.
-4. If a session is exactly 28 to 32 minutes away, it triggers the Composio `WHATSAPP_SEND_MESSAGE` action to send a reminder.
-5. It prevents duplicate messages using a hidden `Last Reminded At` property in Notion.
+## Technical Stack & Logic
+- **Core Engine:** `wa_reminder.py` (Python)
+- **Deployment:** GitHub Actions (`.github/workflows/reminder.yml`) runs every 5 minutes.
+- **Credentials:** `NOTION_TOKEN`, `GMAIL_ADDRESS`, `GMAIL_APP_PASSWORD` are safely stored in GitHub Secrets.
 
-## Notion Columns & System Logic
-If an AI needs to modify this, be aware of these specific Notion columns:
-- **Skip Next (Checkbox)**: If checked, the script skips the immediate next session. It writes the cancelled session's timestamp to `Skip Until`. Once that time passes, the script *auto-clears* the checkbox and `Skip Until` date.
-- **Override Time (Date)**: Used for one-off reschedules. The script will use this time instead of the regular schedule. It *auto-clears* after the reminder is sent.
-- **schadule (Text)**: Format is `Days, Times` (e.g., `mo,we,fr 12:00,14:00,16:00`).
+### Resiliency & Edge Cases Engineered
+1. **GitHub Cron Buffer `(5, 38)`:** GitHub's free servers routinely delay cron jobs by 5–30 minutes. The script actively hunts for sessions starting 38 minutes away. If GitHub lags, it still sends the email as long as there are at least 5 minutes left. If it's less than 5 minutes (or the session started), it invokes a "dead-kill" and aborts.
+2. **Anti-Spam Injectors:** The system injects official `Date` and `Message-ID` headers (`email.utils`) into the MIMEText payload to mimic hand-typed emails and bypass spam filters.
+3. **UTF-8 Hardening:** The Arabic greeting (`سلامٌ عليكم`) is explicitly encoded in UTF-8 to prevent internal crashes on GitHub's Linux servers.
+4. **Deduplication:** A hidden `Last Reminded At` property in Notion ensures a student is never emailed twice for the same session.
 
-## For Future AI Assistants
-If Faris asks you to update this system:
-1. Make your code changes in `wa_reminder.py`.
-2. Commit and push the changes to `https://github.com/faris11zsc/automate-schedule` using the terminal so GitHub Actions picks up the new code.
-3. The `COMPOSIO_API_KEY` is stored in GitHub Secrets, not locally.
+## Notion Controls (No Code Needed)
+If you want to edit the schedule, you only touch Notion. The script auto-adapts instantly:
+- **Skip Next (Checkbox):** Skips the immediate next session and records the timestamp in `Skip Until`. It auto-clears once that session passes.
+- **Override Time (Date):** A one-time reschedule. Auto-clears after the reminder is sent.
+- **Email / emails:** The column containing the student's email address.
+
+## For Future Sasa AI Instances 🤖
+If Faris asks you to update this system in a new chat:
+1. Make your changes strictly in `[wa_reminder.py](file:///D:/lighknight/automation/wa_reminder.py)`.
+2. Do not use standard text paths. Follow the Clickable Paths Protocol (`file:///`).
+3. Commit and push directly to GitHub (`git push origin main`). GitHub Actions will automatically deploy your code.
