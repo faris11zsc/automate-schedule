@@ -61,7 +61,7 @@ TZ_ALIAS = {
     "gmt":"UTC","utc":"UTC",
 }
 def norm_tz(s):
-    if not s: return "Africa/Cairo"
+    if not s: return "UTC"
     k = s.strip().lower()
     if k in TZ_ALIAS: return TZ_ALIAS[k]
     try: pytz.timezone(s.strip()); return s.strip()
