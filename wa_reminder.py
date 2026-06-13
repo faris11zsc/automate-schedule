@@ -13,6 +13,7 @@ HOW TO CONTROL (everything in Notion, nothing else needed):
 import os, requests, pytz, smtplib
 from datetime import datetime, timedelta, timezone
 from email.mime.text import MIMEText
+import email.utils
 
 NOTION_TOKEN   = os.environ.get("NOTION_TOKEN")
 GMAIL_ADDRESS  = os.environ.get("GMAIL_ADDRESS")
@@ -233,6 +234,8 @@ def _send(row_id, name, email_addr, session_dt, tz_s, now):
     msg['Subject'] = 'Upcoming Session Reminder'
     msg['From'] = GMAIL_ADDRESS
     msg['To'] = email_addr
+    msg['Date'] = email.utils.formatdate(localtime=False)
+    msg['Message-ID'] = email.utils.make_msgid()
     
     try:
         with smtplib.SMTP_SSL('smtp.gmail.com', 465) as server:
