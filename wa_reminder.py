@@ -91,7 +91,9 @@ def parse_time_str(s):
 
 def parse_schedule(sch, tz_s):
     if not sch or not sch.strip(): return []
-    parts = sch.strip().split()
+    # Normalize spaces so "1:00 am" becomes "1:00am" and "sun, wed" becomes "sun,wed"
+    sch = sch.strip().lower().replace(" am", "am").replace(" pm", "pm").replace(", ", ",")
+    parts = sch.split()
     if len(parts) < 2: return []
     days  = [d.strip() for d in parts[0].split(",")]
     times = [t.strip() for t in parts[1].split(",")]
