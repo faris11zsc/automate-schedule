@@ -12,7 +12,7 @@ It is controlled 100% via a Notion Database and runs on GitHub Actions (Cron).
 - **Credentials:** `NOTION_TOKEN`, `GMAIL_ADDRESS`, `GMAIL_APP_PASSWORD` are safely stored in GitHub Secrets.
 
 ### Resiliency & Edge Cases Engineered
-1. **GitHub Cron Buffer `(5, 38)`:** GitHub's free servers routinely delay cron jobs by 5–30 minutes. The script actively hunts for sessions starting 38 minutes away. If GitHub lags, it still sends the email as long as there are at least 5 minutes left. If it's less than 5 minutes (or the session started), it invokes a "dead-kill" and aborts.
+1. **GitHub Cron Buffer `(5, 60)`:** GitHub's free servers routinely delay cron jobs by 5–30 minutes. The script actively hunts for sessions starting 60 minutes away. If GitHub lags, it still sends the email as long as there are at least 5 minutes left. If it's less than 5 minutes (or the session started), it invokes a "dead-kill" and aborts.
 2. **Anti-Spam Injectors:** The system injects official `Date` and `Message-ID` headers (`email.utils`) into the MIMEText payload to mimic hand-typed emails and bypass spam filters.
 3. **UTF-8 Hardening:** The Arabic greeting (`سلامٌ عليكم`) is explicitly encoded in UTF-8 to prevent internal crashes on GitHub's Linux servers.
 4. **Deduplication:** A hidden `Last Reminded At` property in Notion ensures a student is never emailed twice for the same session.
