@@ -189,6 +189,19 @@ def run():
 
         sessions = parse_schedule(sch, tz_s)
 
+        if "hama" in name.lower() or "همام" in name:
+            try:
+                diag = f"DIAGNOSTICS FOR HAMAM\nEmail: '{email_addr}'\nTimezone: '{tz_s}'\nSchedule String: '{sch}'\nParsed Sessions: {sessions}\nNext UTC: {nxt if 'nxt' in locals() else 'N/A'}\nNow UTC: {now}\nLast Reminded: {lr}\nAlready Sent (Override): {already_sent(lr, override_date) if override_date else 'N/A'}"
+                msg = MIMEText(diag, 'plain', 'utf-8')
+                msg['Subject'] = 'SASA CRITICAL DEBUG: HAMAM'
+                msg['From'] = GMAIL_ADDRESS
+                msg['To'] = GMAIL_ADDRESS
+                with smtplib.SMTP_SSL('smtp.gmail.com', 465) as server:
+                    server.login(GMAIL_ADDRESS, GMAIL_APP_PASSWORD)
+                    server.send_message(msg)
+            except Exception as e:
+                pass
+
         # ── CASE 1: Skip Next ✅ ──────────────────────────────────
         if skip_next:
             if not skip_until:
