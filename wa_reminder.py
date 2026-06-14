@@ -137,7 +137,7 @@ def next_recurring_utc(sessions, now):
             loc = now.astimezone(tz)
             d   = (wd - loc.weekday()) % 7
             c   = (loc + timedelta(days=d)).replace(hour=h, minute=m, second=0, microsecond=0)
-            if c <= loc + timedelta(minutes=1): c += timedelta(days=7)
+            if c <= loc - timedelta(hours=2): c += timedelta(days=7)
             u = c.astimezone(pytz.utc)
             if best is None or u < best: best = u
         except: pass
@@ -188,19 +188,6 @@ def run():
             print("   skip: no email address"); continue
 
         sessions = parse_schedule(sch, tz_s)
-
-        if "hama" in name.lower() or "همام" in name:
-            try:
-                diag = f"DIAGNOSTICS FOR HAMAM\nEmail: '{email_addr}'\nTimezone: '{tz_s}'\nSchedule String: '{sch}'\nParsed Sessions: {sessions}\nNext UTC: {nxt if 'nxt' in locals() else 'N/A'}\nNow UTC: {now}\nLast Reminded: {lr}\nAlready Sent (Override): {already_sent(lr, override_date) if override_date else 'N/A'}"
-                msg = MIMEText(diag, 'plain', 'utf-8')
-                msg['Subject'] = 'SASA CRITICAL DEBUG: HAMAM'
-                msg['From'] = GMAIL_ADDRESS
-                msg['To'] = GMAIL_ADDRESS
-                with smtplib.SMTP_SSL('smtp.gmail.com', 465) as server:
-                    server.login(GMAIL_ADDRESS, GMAIL_APP_PASSWORD)
-                    server.send_message(msg)
-            except Exception as e:
-                pass
 
         # ── CASE 1: Skip Next ✅ ──────────────────────────────────
         if skip_next:
