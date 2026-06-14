@@ -60,7 +60,10 @@ def notion_update(row_id, props):
         if ptype == "checkbox":
             properties[name] = {"checkbox": True if val == "True" else False}
         elif ptype == "date":
-            properties[name] = {"date": {"start": val} if val else None}
+            if isinstance(val, dict):
+                properties[name] = {"date": val}
+            else:
+                properties[name] = {"date": {"start": val} if val else None}
             
     r = requests.patch(f"https://api.notion.com/v1/pages/{row_id}", headers=headers, json={"properties": properties}, timeout=30)
     r.raise_for_status()
@@ -210,10 +213,21 @@ def run():
                 actual_next = nxt_base
                 
         if actual_next:
-            actual_next_iso = to_iso(actual_next)
-            if current_next_str != actual_next_iso:
-                notion_update(rid, [{"name":"next session Date","type":"date","value":actual_next_iso}])
-                print(f"   📅 Calendar synced: {fmt(actual_next, tz_s)}")
+            cairo_dt = actual_next.astimezone(pytz.timezone("Africa/Cairo"))
+            cairo_str = cairo_dt.strftime("%Y-%m-%dT%H:%M:%S")
+            
+            needs_update = True
+            if current_next_str:
+                try:
+                    c_dt = datetime.fromisoformat(current_next_str.replace("Z","+00:00"))
+                    if abs((c_dt - actual_next).total_seconds()) < 60:
+                        needs_update = False
+                except: pass
+                
+            if needs_update:
+                notion_update(rid, [{"name":"next session Date","type":"date",
+                                     "value":{"start": cairo_str, "time_zone": "Africa/Cairo"}}])
+                print(f"   📅 Calendar synced (Egypt Time): {cairo_dt.strftime('%b %d, %I:%M %p')}")
         elif current_next_str:
             notion_update(rid, [{"name":"next session Date","type":"date","value":None}])
             print(f"   📅 Calendar cleared")
