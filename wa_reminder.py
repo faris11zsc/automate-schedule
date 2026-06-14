@@ -89,19 +89,26 @@ def parse_time_str(s):
     elif not am and not pm and 1 <= h <= 11: h += 12
     return h, m
 
+import re
+
 def parse_schedule(sch, tz_s):
     if not sch or not sch.strip(): return []
-    # Normalize spaces so "1:00 am" becomes "1:00am" and "sun, wed" becomes "sun,wed"
-    sch = sch.strip().lower().replace(" am", "am").replace(" pm", "pm").replace(", ", ",")
-    parts = sch.split()
-    if len(parts) < 2: return []
-    days  = [d.strip() for d in parts[0].split(",")]
-    times = [t.strip() for t in parts[1].split(",")]
+    sch = sch.strip().lower()
+    
+    # Extract all valid day abbreviations
+    day_matches = re.findall(r'[a-z]+', sch)
+    days = [d for d in day_matches if d in DAYS]
+    
+    # Extract all time patterns (e.g. 1, 1:00, 1 am, 1:00pm)
+    time_matches = re.findall(r'\d{1,2}(?::\d{2})?(?:\s*[ap]m)?', sch)
+    times = [t.strip() for t in time_matches]
+    
+    if not days or not times: return []
+    
     tz_n  = norm_tz(tz_s)
     out   = []
     for i, d in enumerate(days):
-        wd = DAYS.get(d.lower())
-        if wd is None: continue
+        wd = DAYS[d]
         t = times[i] if i < len(times) else times[-1]
         try: h, m = parse_time_str(t); out.append((wd, h, m, tz_n))
         except: pass
