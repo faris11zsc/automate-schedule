@@ -181,7 +181,7 @@ def run():
         skip_next     = p.get("Skip Next",{}).get("checkbox", False)
         skip_until    = get_date(p.get("Skip Until",{}))
         override_date = get_date(p.get("Override Time",{}))
-        current_next_str = get_date(p.get("Next Session",{}))
+        current_next_str = get_date(p.get("next session Date",{}))
 
         print(f"── {name}")
 
@@ -210,10 +210,10 @@ def run():
         if actual_next:
             actual_next_iso = to_iso(actual_next)
             if current_next_str != actual_next_iso:
-                notion_update(rid, [{"name":"Next Session","type":"date","value":actual_next_iso}])
+                notion_update(rid, [{"name":"next session Date","type":"date","value":actual_next_iso}])
                 print(f"   📅 Calendar synced: {fmt(actual_next, tz_s)}")
         elif current_next_str:
-            notion_update(rid, [{"name":"Next Session","type":"date","value":None}])
+            notion_update(rid, [{"name":"next session Date","type":"date","value":None}])
             print(f"   📅 Calendar cleared")
 
         # ── CASE 1: Skip Next ✅ ──────────────────────────────────
