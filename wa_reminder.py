@@ -97,10 +97,14 @@ def parse_schedule(sch, tz_s):
     
     # Extract all valid day abbreviations
     day_matches = re.findall(r'[a-z]+', sch)
-    days = [d for d in day_matches if d in DAYS]
+    days = []
+    for d in day_matches:
+        if d in ('am', 'pm'): continue
+        if d[:3] in DAYS: days.append(d[:3])
+        elif d[:2] in DAYS: days.append(d[:2])
     
-    # Extract all time patterns (e.g. 1, 1:00, 1 am, 1:00pm)
-    time_matches = re.findall(r'\d{1,2}(?::\d{2})?(?:\s*[ap]m)?', sch)
+    # Extract all time patterns (e.g. 1, 1:00, 1 am, 1 : 00pm)
+    time_matches = re.findall(r'\d{1,2}(?:\s*:\s*\d{2})?(?:\s*[ap]m)?', sch)
     times = [t.strip() for t in time_matches]
     
     if not days or not times: return []
