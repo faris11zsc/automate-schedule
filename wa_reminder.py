@@ -83,7 +83,9 @@ def fmt(dt, tz_s):
     except: return dt.strftime("%H:%M UTC")
 
 def to_iso(dt):
-    return dt.strftime("%Y-%m-%dT%H:%M:%S+00:00")
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    return dt.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.000Z")
 
 # ── Schedule parser ───────────────────────────────────────────────────
 DAYS = {"mo":0,"mon":0,"tu":1,"tue":1,"we":2,"wed":2,"th":3,"thu":3,
