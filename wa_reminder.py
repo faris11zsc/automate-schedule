@@ -181,6 +181,7 @@ def run():
         skip_next     = p.get("Skip Next",{}).get("checkbox", False)
         skip_until    = get_date(p.get("Skip Until",{}))
         override_date = get_date(p.get("Override Time",{}))
+        current_next_str = get_date(p.get("Next Session",{}))
 
         print(f"── {name}")
 
@@ -189,14 +190,39 @@ def run():
 
         sessions = parse_schedule(sch, tz_s)
 
+        # ── SYNC: Update 'Next Session' property for Notion Calendar ──
+        actual_next = None
+        nxt_base = next_recurring_utc(sessions, now)
+        
+        if override_date:
+            try:
+                odt = datetime.fromisoformat(override_date.replace("Z","+00:00"))
+                if now <= odt + timedelta(hours=1):
+                    actual_next = odt
+            except: pass
+            
+        if not actual_next and nxt_base:
+            if skip_next:
+                actual_next = next_recurring_utc(sessions, nxt_base + timedelta(hours=2))
+            else:
+                actual_next = nxt_base
+                
+        if actual_next:
+            actual_next_iso = to_iso(actual_next)
+            if current_next_str != actual_next_iso:
+                notion_update(rid, [{"name":"Next Session","type":"date","value":actual_next_iso}])
+                print(f"   📅 Calendar synced: {fmt(actual_next, tz_s)}")
+        elif current_next_str:
+            notion_update(rid, [{"name":"Next Session","type":"date","value":None}])
+            print(f"   📅 Calendar cleared")
+
         # ── CASE 1: Skip Next ✅ ──────────────────────────────────
         if skip_next:
             if not skip_until:
                 # First detection — record which session is being cancelled
-                nxt = next_recurring_utc(sessions, now)
-                if nxt:
-                    notion_update(rid, [{"name":"Skip Until","type":"date","value":to_iso(nxt)}])
-                    print(f"   Skip Next ✅ — cancelling session at {fmt(nxt, tz_s)}, will auto-clear after")
+                if nxt_base:
+                    notion_update(rid, [{"name":"Skip Until","type":"date","value":to_iso(nxt_base)}])
+                    print(f"   Skip Next ✅ — cancelling session at {fmt(nxt_base, tz_s)}, will auto-clear after")
                 else:
                     print("   Skip Next ✅ — no schedule to reference")
             else:
@@ -237,19 +263,18 @@ def run():
                 print(f"   Override Time error: {e} — using recurring schedule")
 
         # ── CASE 3: Normal recurring schedule ─────────────────────
-        nxt = next_recurring_utc(sessions, now)
-        if not nxt:
+        if not nxt_base:
             print("   skip: no parseable schedule"); continue
 
-        mins = (nxt - now).total_seconds() / 60
-        print(f"   Recurring → {fmt(nxt, tz_s)} ({mins:.0f} min away)")
+        mins = (nxt_base - now).total_seconds() / 60
+        print(f"   Recurring → {fmt(nxt_base, tz_s)} ({mins:.0f} min away)")
 
         if not (WINDOW[0] <= mins <= WINDOW[1]):
             print("   not in window"); continue
-        if already_sent(lr, nxt):
+        if already_sent(lr, nxt_base):
             print("   already reminded"); continue
 
-        _send(rid, name, email_addr, nxt, tz_s, now)
+        _send(rid, name, email_addr, nxt_base, tz_s, now)
         print()
 
 def _send(row_id, name, email_addr, session_dt, tz_s, now):
