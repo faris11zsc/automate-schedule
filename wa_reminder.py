@@ -33,9 +33,20 @@ def notion_query_database():
         "filter": {"property": "Status", "select": {"equals": "Active"}},
         "page_size": 100
     }
-    r = requests.post(f"https://api.notion.com/v1/databases/{DATABASE_ID}/query", headers=headers, json=data, timeout=30)
-    r.raise_for_status()
-    return r.json()
+    
+    results = []
+    has_more = True
+    
+    while has_more:
+        r = requests.post(f"https://api.notion.com/v1/databases/{DATABASE_ID}/query", headers=headers, json=data, timeout=30)
+        r.raise_for_status()
+        resp = r.json()
+        results.extend(resp.get("results", []))
+        has_more = resp.get("has_more", False)
+        if has_more:
+            data["start_cursor"] = resp.get("next_cursor")
+            
+    return {"results": results}
 
 def notion_update(row_id, props):
     headers = {
