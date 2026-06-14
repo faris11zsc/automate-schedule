@@ -201,7 +201,8 @@ def run():
         
         if override_date:
             try:
-                odt = datetime.fromisoformat(override_date.replace("Z","+00:00"))
+                raw_odt = datetime.fromisoformat(override_date.replace("Z","+00:00"))
+                odt = pytz.timezone(norm_tz(tz_s)).localize(raw_odt.replace(tzinfo=None))
                 if now <= odt + timedelta(hours=1):
                     actual_next = odt
             except: pass
@@ -257,7 +258,8 @@ def run():
         # ── CASE 2: Override Time set → one-time reschedule ───────
         if override_date:
             try:
-                override_dt = datetime.fromisoformat(override_date.replace("Z","+00:00"))
+                raw_odt = datetime.fromisoformat(override_date.replace("Z","+00:00"))
+                override_dt = pytz.timezone(norm_tz(tz_s)).localize(raw_odt.replace(tzinfo=None))
                 if now > override_dt + timedelta(hours=1):
                     # Override has passed → auto-clear
                     notion_update(rid, [{"name":"Override Time","type":"date","value":None}])
