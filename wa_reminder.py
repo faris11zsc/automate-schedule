@@ -49,12 +49,22 @@ if GCAL_CREDS_JSON and service_account:
 
 def sync_gcal(event_id, summary, start_dt):
     if not gcal_service: return
-    end_dt = start_dt + timedelta(minutes=60)
+    
+    cairo_tz = pytz.timezone("Africa/Cairo")
+    start_cairo = start_dt.astimezone(cairo_tz)
+    end_cairo = start_cairo + timedelta(minutes=60)
+    
     event_body = {
         'id': event_id,
         'summary': summary,
-        'start': {'dateTime': start_dt.isoformat()},
-        'end': {'dateTime': end_dt.isoformat()},
+        'start': {
+            'dateTime': start_cairo.strftime("%Y-%m-%dT%H:%M:%S"),
+            'timeZone': 'Africa/Cairo'
+        },
+        'end': {
+            'dateTime': end_cairo.strftime("%Y-%m-%dT%H:%M:%S"),
+            'timeZone': 'Africa/Cairo'
+        },
     }
     try:
         gcal_service.events().update(calendarId=GCAL_CALENDAR_ID, eventId=event_id, body=event_body).execute()
