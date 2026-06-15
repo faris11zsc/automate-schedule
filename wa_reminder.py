@@ -250,9 +250,6 @@ def run():
 
         print(f"── {name}")
 
-        if not email_addr:
-            print("   skip: no email address"); continue
-
         sessions = parse_schedule(sch, tz_s)
         nxt_base = next_recurring_utc(sessions, now)
 
@@ -344,7 +341,9 @@ def run():
             mins = (dt_cand - now).total_seconds() / 60
             if WINDOW[0] <= mins <= WINDOW[1]:
                 print(f"   {kind} → {fmt(dt_cand, tz_s)} ({mins:.0f} min away)")
-                if already_sent(lr, dt_cand):
+                if not email_addr:
+                    print("   skip notification: no email address")
+                elif already_sent(lr, dt_cand):
                     print("   already reminded")
                 else:
                     _send(rid, name, email_addr, dt_cand, tz_s, now)
