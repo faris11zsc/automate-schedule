@@ -201,7 +201,7 @@ def next_recurring_utc(sessions, now):
             loc = now.astimezone(tz)
             d   = (wd - loc.weekday()) % 7
             c   = (loc + timedelta(days=d)).replace(hour=h, minute=m, second=0, microsecond=0)
-            if c <= loc - timedelta(hours=2): c += timedelta(days=7)
+            if c <= loc - timedelta(hours=1): c += timedelta(days=7)
             u = c.astimezone(pytz.utc)
             if best is None or u < best: best = u
         except: pass
