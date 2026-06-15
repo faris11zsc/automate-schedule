@@ -26,4 +26,5 @@ jobs:
           NOTION_TOKEN: ${{ secrets.NOTION_TOKEN }}
           GMAIL_ADDRESS: ${{ secrets.GMAIL_ADDRESS }}
           GMAIL_APP_PASSWORD: ${{ secrets.GMAIL_APP_PASSWORD }}
+          GCAL_CREDENTIALS: ${{ secrets.GCAL_CREDENTIALS }}
         run: python wa_reminder.py

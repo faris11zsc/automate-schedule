@@ -10,10 +10,20 @@ HOW TO CONTROL (everything in Notion, nothing else needed):
   Everything else (schedule, timezone, number) → just edit in Notion, picked up instantly
 """
 
-import os, requests, pytz, smtplib
+import os, sys, time, json
+import requests
+import pytz
 from datetime import datetime, timedelta, timezone
 from email.mime.text import MIMEText
+import smtplib
 import email.utils
+
+# ── Google Calendar Dependencies ──
+try:
+    from google.oauth2 import service_account
+    from googleapiclient.discovery import build
+except ImportError:
+    service_account = None
 
 NOTION_TOKEN   = os.environ.get("NOTION_TOKEN")
 GMAIL_ADDRESS  = os.environ.get("GMAIL_ADDRESS")
@@ -21,6 +31,45 @@ GMAIL_APP_PASSWORD = os.environ.get("GMAIL_APP_PASSWORD")
 DATABASE_ID    = "5cb27942-1b67-4dc6-9de4-e9e72dafbbea"
 WINDOW         = (5, 60)   # send when session is this many minutes away
 DEDUP_HOURS    = 2         # safety net: never re-send within this window
+
+# ── Google Calendar Setup ─────────────────────────────────────────────
+GCAL_CALENDAR_ID = "843564b811e67948fe8e1125a241fc60a08a9698837f4735cba8196e50e44e4a@group.calendar.google.com"
+GCAL_CREDS_JSON  = os.environ.get("GCAL_CREDENTIALS")
+
+gcal_service = None
+if GCAL_CREDS_JSON and service_account:
+    try:
+        creds_info = json.loads(GCAL_CREDS_JSON)
+        creds = service_account.Credentials.from_service_account_info(
+            creds_info, scopes=['https://www.googleapis.com/auth/calendar']
+        )
+        gcal_service = build('calendar', 'v3', credentials=creds, cache_discovery=False)
+    except Exception as e:
+        print(f"Failed to init GCal: {e}")
+
+def sync_gcal(event_id, summary, start_dt):
+    if not gcal_service: return
+    end_dt = start_dt + timedelta(minutes=60)
+    event_body = {
+        'id': event_id,
+        'summary': summary,
+        'start': {'dateTime': start_dt.isoformat()},
+        'end': {'dateTime': end_dt.isoformat()},
+    }
+    try:
+        gcal_service.events().update(calendarId=GCAL_CALENDAR_ID, eventId=event_id, body=event_body).execute()
+    except Exception as e:
+        if "404" in str(e):
+            try:
+                gcal_service.events().insert(calendarId=GCAL_CALENDAR_ID, body=event_body).execute()
+            except: pass
+        else: pass
+
+def delete_gcal(event_id):
+    if not gcal_service: return
+    try:
+        gcal_service.events().delete(calendarId=GCAL_CALENDAR_ID, eventId=event_id).execute()
+    except: pass
 
 # ── Direct APIs ───────────────────────────────────────────────────────
 def notion_query_database():
@@ -255,6 +304,7 @@ def run():
         actual_next = candidates[0][1] if candidates else None
 
         # ── SYNC: Update 'next session Date' property for Notion Calendar ──
+        event_id = rid.replace("-", "")
         if actual_next:
             cairo_dt = actual_next.astimezone(pytz.timezone("Africa/Cairo"))
             cairo_str = cairo_dt.strftime("%Y-%m-%dT%H:%M:%S")
@@ -270,10 +320,13 @@ def run():
             if needs_update:
                 notion_update(rid, [{"name":"next session Date","type":"date",
                                      "value":{"start": cairo_str, "time_zone": "Africa/Cairo"}}])
-                print(f"   📅 Calendar synced (Egypt Time): {cairo_dt.strftime('%b %d, %I:%M %p')}")
+                print(f"   📅 Notion Calendar synced (Egypt Time): {cairo_dt.strftime('%b %d, %I:%M %p')}")
+                sync_gcal(event_id, name, actual_next)
+                print(f"   📅 Google Calendar synced")
         elif current_next_str:
             notion_update(rid, [{"name":"next session Date","type":"date","value":None}])
-            print(f"   📅 Calendar cleared")
+            print(f"   📅 Calendars cleared")
+            delete_gcal(event_id)
 
         # ── CHECK FOR NOTIFICATIONS ──
         notified = False
