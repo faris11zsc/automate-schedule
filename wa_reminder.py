@@ -341,12 +341,13 @@ def run():
             mins = (dt_cand - now).total_seconds() / 60
             if WINDOW[0] <= mins <= WINDOW[1]:
                 print(f"   {kind} → {fmt(dt_cand, tz_s)} ({mins:.0f} min away)")
-                if not email_addr:
-                    print("   skip notification: no email address")
-                elif already_sent(lr, dt_cand):
+                if already_sent(lr, dt_cand):
                     print("   already reminded")
                 else:
-                    _send(rid, name, email_addr, dt_cand, tz_s, now)
+                    if email_addr:
+                        _send(rid, name, email_addr, dt_cand, tz_s, now)
+                    else:
+                        print("   skip sending: no email address")
                 notified = True
                 break
 
