@@ -15,6 +15,7 @@ import requests
 import pytz
 from datetime import datetime, timedelta, timezone
 from email.mime.text import MIMEText
+from email.mime.multipart import MIMEMultipart
 import smtplib
 import email.utils
 
@@ -89,7 +90,7 @@ def notion_query_database():
         "Content-Type": "application/json"
     }
     data = {
-        "filter": {"property": "Status", "select": {"equals": "Active"}},
+        # Fetch all students so we can clean up calendars for inactive ones
         "page_size": 100
     }
     
@@ -221,6 +222,71 @@ def already_sent(last_str, session_dt):
         return abs((session_dt - last).total_seconds()) / 3600 < DEDUP_HOURS
     except: return False
 
+def ensure_target_student_exists(rows):
+    target_email = "oransafaris@gmail.com"
+    found = False
+    for row in rows:
+        p = row.get("properties", {})
+        em_prop = p.get("Email") or p.get("emails") or {}
+        email_addr = em_prop.get("email") or txt(em_prop, "rich_text")
+        if email_addr and email_addr.strip().lower() == target_email:
+            found = True
+            break
+            
+    if not found:
+        print(f"Target student {target_email} not found in Notion database. Creating it...")
+        email_field = "Email"
+        email_type = "email"
+        
+        if rows:
+            first_props = rows[0].get("properties", {})
+            if "emails" in first_props:
+                email_field = "emails"
+                email_type = first_props["emails"].get("type", "email")
+            elif "Email" in first_props:
+                email_field = "Email"
+                email_type = first_props["Email"].get("type", "email")
+        
+        headers = {
+            "Authorization": f"Bearer {NOTION_TOKEN}",
+            "Notion-Version": "2022-06-28",
+            "Content-Type": "application/json"
+        }
+        
+        properties = {
+            "Student Name": {
+                "title": [{"text": {"content": "Oran Safaris"}}]
+            },
+            "schadule": {
+                "rich_text": [{"text": {"content": "Sunday 8:58 am"}}]
+            },
+            "Timezone": {
+                "rich_text": [{"text": {"content": "Africa/Cairo"}}]
+            },
+            "Status": {
+                "select": {"name": "Active"}
+            }
+        }
+        
+        if email_type == "email":
+            properties[email_field] = {"email": target_email}
+        else:
+            properties[email_field] = {"rich_text": [{"text": {"content": target_email}}]}
+            
+        payload = {
+            "parent": {"database_id": DATABASE_ID},
+            "properties": properties
+        }
+        
+        try:
+            r = requests.post("https://api.notion.com/v1/pages", headers=headers, json=payload, timeout=30)
+            r.raise_for_status()
+            print(f"Successfully created target student {target_email} in Notion database.")
+            new_page = r.json()
+            rows.append(new_page)
+        except Exception as e:
+            print(f"Failed to create target student in Notion: {e}")
+
 # ── Main ──────────────────────────────────────────────────────────────
 def run():
     now  = datetime.now(timezone.utc)
@@ -230,6 +296,8 @@ def run():
     except Exception as e:
         print(f"Failed to fetch Notion Database: {e}")
         return
+        
+    ensure_target_student_exists(rows)
     print(f"{now.strftime('%a %Y-%m-%d %H:%M UTC')} — {len(rows)} active students\n")
 
     for row in rows:
@@ -247,8 +315,19 @@ def run():
         override_date = get_date(p.get("Override Time",{}))
         extra_date    = get_date(p.get("extra session",{}))
         current_next_str = get_date(p.get("next session Date",{}))
+        status = p.get("Status", {}).get("select", {})
+        status_name = status.get("name") if status else ""
 
         print(f"── {name}")
+
+        if status_name != "Active":
+            if current_next_str:
+                notion_update(rid, [{"name":"next session Date","type":"date","value":None}])
+                print(f"   [Inactive] 📅 Calendars cleared")
+                delete_gcal(rid.replace("-", ""))
+            else:
+                print(f"   [Inactive]")
+            continue
 
         sessions = parse_schedule(sch, tz_s)
         nxt_base = next_recurring_utc(sessions, now)
@@ -358,14 +437,72 @@ def run():
         
         print()
 
+def get_html(name, session_dt_str, is_test=False):
+    title = "hi" if is_test else "Upcoming Session Reminder 📅"
+    body_text = "hi" if is_test else f"Your session starts soon at <strong>{session_dt_str}</strong>.<br><br>See you soon!"
+    
+    return f"""<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>LightKnight</title>
+</head>
+<body style="margin:0;padding:0;background-color:#f7f5ef;font-family:'Segoe UI',Roboto,'Helvetica Neue',Arial,sans-serif;">
+  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background-color:#f7f5ef;">
+    <tr>
+      <td align="center" style="padding:24px 16px;">
+        <table role="presentation" width="600" cellpadding="0" cellspacing="0" style="max-width:600px;width:100%;background-color:#ffffff;border-radius:16px;overflow:hidden;box-shadow:0 1px 3px rgba(0,0,0,0.06);">
+          <tr>
+            <td style="background:linear-gradient(135deg,#1a2744 0%,#2a3a5e 100%);padding:28px 32px;text-align:center;">
+              <h1 style="margin:0;font-size:22px;font-weight:700;color:#c5a44e;letter-spacing:0.5px;">
+                ✦ LightKnight
+              </h1>
+            </td>
+          </tr>
+          <tr>
+            <td style="padding:32px;">
+              <h2 style="margin:0 0 16px;font-size:20px;color:#1a2744;font-weight:600;">{title}</h2>
+              <p style="margin:0 0 14px;font-size:15px;color:#2D2D2D;line-height:1.6;">سلامٌ عليكم {name},</p>
+              <p style="margin:0 0 14px;font-size:15px;color:#2D2D2D;line-height:1.6;">{body_text}</p>
+              <hr style="border:none;border-top:1px solid #e8e0c8;margin:20px 0;" />
+              <p style="margin:0;font-size:15px;color:#2D2D2D;line-height:1.6;">Best,<br/>Faris</p>
+            </td>
+          </tr>
+          <tr>
+            <td style="background-color:#1a2744;padding:24px 32px;text-align:center;">
+              <p style="margin:0;font-size:13px;color:#a0aec0;">This message is automated by the LightKnight system.</p>
+            </td>
+          </tr>
+        </table>
+      </td>
+    </tr>
+  </table>
+</body>
+</html>"""
+
 def _send(row_id, name, email_addr, session_dt, tz_s, now):
-    msg_text = f"سلامٌ عليكم {name},\n\nYour session starts soon at {fmt(session_dt, tz_s)}.\n\nSee you soon!\n\nBest,\nFaris\n\n\n\nThis message is automated"
-    msg = MIMEText(msg_text, 'plain', 'utf-8')
-    msg['Subject'] = 'Upcoming Session Reminder'
-    msg['From'] = GMAIL_ADDRESS
+    session_dt_str = fmt(session_dt, tz_s)
+    is_test = email_addr.strip().lower() == "oransafaris@gmail.com"
+    
+    msg = MIMEMultipart('alternative')
+    msg['Subject'] = 'hi' if is_test else 'Upcoming Session Reminder'
+    msg['From'] = f"LightKnight <{GMAIL_ADDRESS}>"
     msg['To'] = email_addr
     msg['Date'] = email.utils.formatdate(localtime=False)
     msg['Message-ID'] = email.utils.make_msgid()
+    
+    # 1. Plain Text Fallback
+    msg_text = f"سلامٌ عليكم {name},\n\nhi\n\nBest,\nFaris\n\n\n\nThis message is automated" if is_test else f"سلامٌ عليكم {name},\n\nYour session starts soon at {session_dt_str}.\n\nSee you soon!\n\nBest,\nFaris\n\n\n\nThis message is automated"
+    part1 = MIMEText(msg_text, 'plain', 'utf-8')
+    
+    # 2. Beautiful HTML Version
+    html_content = get_html(name, session_dt_str, is_test)
+    part2 = MIMEText(html_content, 'html', 'utf-8')
+    
+    # Attach parts (HTML must be attached LAST per RFC specs)
+    msg.attach(part1)
+    msg.attach(part2)
     
     try:
         with smtplib.SMTP_SSL('smtp.gmail.com', 465) as server:
@@ -373,7 +510,7 @@ def _send(row_id, name, email_addr, session_dt, tz_s, now):
             server.send_message(msg)
             
         notion_update(row_id, [{"name":"Last Reminded At","type":"date","value":to_iso(now)}])
-        print(f"   ✓ Sent to {name} ({email_addr})")
+        print(f"   ✓ Sent HTML email to {name} ({email_addr})")
     except Exception as e:
         print(f"   ✗ Failed for {name}: {e}")
 
