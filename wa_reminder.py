@@ -48,12 +48,12 @@ if GCAL_CREDS_JSON and service_account:
     except Exception as e:
         print(f"Failed to init GCal: {e}")
 
-def sync_gcal(event_id, summary, start_dt):
+def sync_gcal(event_id, summary, start_dt, duration_minutes=30):
     if not gcal_service: return
     
     cairo_tz = pytz.timezone("Africa/Cairo")
     start_cairo = start_dt.astimezone(cairo_tz)
-    end_cairo = start_cairo + timedelta(minutes=60)
+    end_cairo = start_cairo + timedelta(minutes=duration_minutes)
     
     event_body = {
         'id': event_id,
@@ -317,6 +317,9 @@ def run():
         current_next_str = get_date(p.get("next session Date",{}))
         status = p.get("Status", {}).get("select", {})
         status_name = status.get("name") if status else ""
+        
+        duration_prop = p.get("Duration", {}).get("number")
+        duration_minutes = int(duration_prop) if duration_prop else 30
 
         print(f"── {name}")
 
@@ -407,7 +410,7 @@ def run():
                 notion_update(rid, [{"name":"next session Date","type":"date",
                                      "value":{"start": cairo_str, "time_zone": "Africa/Cairo"}}])
                 print(f"   📅 Notion Calendar synced (Egypt Time): {cairo_dt.strftime('%b %d, %I:%M %p')}")
-                sync_gcal(event_id, name, actual_next)
+                sync_gcal(event_id, name, actual_next, duration_minutes)
                 print(f"   📅 Google Calendar synced")
         elif current_next_str:
             notion_update(rid, [{"name":"next session Date","type":"date","value":None}])
