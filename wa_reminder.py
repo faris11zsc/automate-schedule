@@ -491,9 +491,13 @@ def _send(row_id, name, email_addr, session_dt, tz_s, now):
     msg = MIMEMultipart('alternative')
     msg['Subject'] = 'hi' if is_test else 'Upcoming Session Reminder'
     msg['From'] = f"LightKnight <{GMAIL_ADDRESS}>"
-    msg['To'] = email_addr
+    msg['To'] = f"{name} <{email_addr}>"
+    msg['Reply-To'] = GMAIL_ADDRESS
     msg['Date'] = email.utils.formatdate(localtime=False)
-    msg['Message-ID'] = email.utils.make_msgid()
+    
+    # Enforce domain alignment in Message-ID to prevent Yahoo/iCloud from flagging GitHub Action hostnames
+    domain = GMAIL_ADDRESS.split('@')[1] if GMAIL_ADDRESS and '@' in GMAIL_ADDRESS else 'gmail.com'
+    msg['Message-ID'] = email.utils.make_msgid(domain=domain)
     
     # 1. Plain Text Fallback
     msg_text = f"سلامٌ عليكم {name},\n\nhi\n\nBest,\nFaris\n\n\n\nThis message is automated" if is_test else f"سلامٌ عليكم {name},\n\nYour session starts soon at {session_dt_str}.\n\nSee you soon!\n\nBest,\nFaris\n\n\n\nThis message is automated"
