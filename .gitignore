@@ -1,0 +1,8 @@
+__pycache__/
+*.exe
+*.zip
+*.jpg
+*.pdf
+*.log
+debug_test.py
+job_logs.txt

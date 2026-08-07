@@ -2,8 +2,8 @@ name: Run WhatsApp Reminder
 
 on:
   schedule:
-    - cron: '*/5 * * * *'  # Runs every 5 minutes
-  workflow_dispatch:        # Allows you to trigger it manually from the Actions tab
+    - cron: '*/5 * * * *'  # wa_reminder: every 5 minutes
+  workflow_dispatch:
 
 jobs:
   run-reminder:
@@ -21,12 +21,26 @@ jobs:
         run: |
           if [ -f requirements.txt ]; then pip install -r requirements.txt; else pip install requests pytz; fi
 
-      - name: Run script
+      - name: Run wa_reminder
         env:
           NOTION_TOKEN: ${{ secrets.NOTION_TOKEN }}
           GMAIL_ADDRESS: ${{ secrets.GMAIL_ADDRESS }}
           GMAIL_APP_PASSWORD: ${{ secrets.GMAIL_APP_PASSWORD }}
           GCAL_CREDENTIALS: ${{ secrets.GCAL_CREDENTIALS }}
+        run: python wa_reminder.py
+
+      - name: Run KeepTheFlow notifier (every 6th run ≈ 30 min)
+        env:
+          GMAIL_ADDRESS: ${{ secrets.GMAIL_ADDRESS }}
+          GMAIL_APP_PASSWORD: ${{ secrets.GMAIL_APP_PASSWORD }}
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
         run: |
-          python wa_reminder.py
-          python keeptheflow_notifier.py
+          MINUTE=$(date +%M)
+          # Run at :00 and :30 marks (every 30 min)
+          if [ "$MINUTE" -lt 5 ] || [ "$MINUTE" -ge 30 -a "$MINUTE" -lt 35 ]; then
+            echo "Running KeepTheFlow notifier..."
+            python keeptheflow_notifier.py
+          else
+            echo "Skipping KeepTheFlow notifier (next run at :00 or :30)"
+          fi
