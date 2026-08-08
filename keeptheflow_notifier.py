@@ -5,8 +5,9 @@ KeepTheFlow Automated Email Notifier
 Runs alongside wa_reminder.py via GitHub Actions (every 30 minutes).
 
 Flow:
-  1. Student records instances → Admin gets notified with deep links
-  2. Admin gives feedback → Student gets notified with deep links
+  1. New student registers → Admin gets notified with name + email
+  2. Student records instances → Admin gets notified with deep links
+  3. Admin gives feedback → Student gets notified with deep links
 
 Uses the same Gmail SMTP + anti-spam logic as the notionA Tri-Literal system.
 """
@@ -137,6 +138,41 @@ def get_student_notification_html(student_name, lesson_id, instances):
           <a href="{lesson_link}" style="display:inline-block;background:linear-gradient(135deg,#1a2744,#2a3a5e);color:#c5a44e;text-decoration:none;padding:14px 28px;border-radius:8px;font-weight:700;font-size:15px;margin-top:8px;">Open Your Lesson →</a>
           <hr style="border:none;border-top:1px solid #e8e0c8;margin:24px 0;"/>
           <p style="margin:0;font-size:15px;color:#2D2D2D;line-height:1.6;">Keep up the great work!<br/>Best,<br/>Faris</p>
+        </td></tr>
+        <tr><td style="background-color:#1a2744;padding:24px 32px;text-align:center;">
+          <p style="margin:0;font-size:13px;color:#a0aec0;">Automated notification from KeepTheFlow.</p>
+        </td></tr>
+      </table>
+    </td></tr>
+  </table>
+</body></html>"""
+
+
+def get_new_student_html(student_name, student_email):
+    """Generate the HTML email sent to admin when a new student registers."""
+    portal_link = f"{PORTAL_BASE}"
+
+    return f"""<!DOCTYPE html>
+<html lang="en">
+<head><meta charset="UTF-8"/><meta name="viewport" content="width=device-width,initial-scale=1.0"/><title>New Student Joined</title></head>
+<body style="margin:0;padding:0;background-color:#f7f5ef;font-family:'Segoe UI',Roboto,'Helvetica Neue',Arial,sans-serif;">
+  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background-color:#f7f5ef;">
+    <tr><td align="center" style="padding:24px 16px;">
+      <table role="presentation" width="600" cellpadding="0" cellspacing="0" style="max-width:600px;width:100%;background-color:#ffffff;border-radius:16px;overflow:hidden;box-shadow:0 1px 3px rgba(0,0,0,0.06);">
+        <tr><td style="background:linear-gradient(135deg,#1a2744 0%,#2a3a5e 100%);padding:28px 32px;text-align:center;">
+          <h1 style="margin:0;font-size:22px;font-weight:700;color:#c5a44e;letter-spacing:0.5px;">✦ LightKnight Flow</h1>
+        </td></tr>
+        <tr><td style="padding:32px;">
+          <h2 style="margin:0 0 16px;font-size:20px;color:#1a2744;font-weight:600;">🆕 New Student Joined!</h2>
+          <p style="margin:0 0 14px;font-size:15px;color:#2D2D2D;line-height:1.6;">Hello Admin,</p>
+          <p style="margin:0 0 14px;font-size:15px;color:#2D2D2D;line-height:1.6;">A new student has registered on the KeepTheFlow platform:</p>
+          <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin:16px 0;border:1px solid #e8e0c8;border-radius:8px;overflow:hidden;">
+            <tr style="background:#f7f5ef;"><td style="padding:12px 16px;font-size:13px;color:#8a95a8;font-weight:600;width:100px;">Name</td><td style="padding:12px 16px;font-size:15px;color:#1a2744;font-weight:700;">{student_name}</td></tr>
+            <tr><td style="padding:12px 16px;font-size:13px;color:#8a95a8;font-weight:600;border-top:1px solid #e8e0c8;">Email</td><td style="padding:12px 16px;font-size:15px;color:#1a2744;border-top:1px solid #e8e0c8;"><a href="mailto:{student_email}" style="color:#c5a44e;text-decoration:none;">{student_email}</a></td></tr>
+          </table>
+          <a href="{portal_link}" style="display:inline-block;background:linear-gradient(135deg,#1a2744,#2a3a5e);color:#c5a44e;text-decoration:none;padding:14px 28px;border-radius:8px;font-weight:700;font-size:15px;margin-top:8px;">Open Portal →</a>
+          <hr style="border:none;border-top:1px solid #e8e0c8;margin:24px 0;"/>
+          <p style="margin:0;font-size:15px;color:#2D2D2D;line-height:1.6;">Best,<br/>The LightKnight System</p>
         </td></tr>
         <tr><td style="background-color:#1a2744;padding:24px 32px;text-align:center;">
           <p style="margin:0;font-size:13px;color:#a0aec0;">Automated notification from KeepTheFlow.</p>
@@ -378,6 +414,45 @@ def run():
                     }).execute()
                 except:
                     pass
+
+    # ══════════════════════════════════════════════════════════════════
+    # 3. NEW STUDENT REGISTRATION: Notify admin
+    # ══════════════════════════════════════════════════════════════════
+    try:
+        students_res = sb.table("qrasm_student_emails").select("*").execute()
+        all_students = students_res.data or []
+    except Exception as e:
+        print(f"   ⚠ Failed to fetch student emails: {e}")
+        all_students = []
+
+    # Find which students we already notified about
+    notified_students = set()
+    for row in all_rows:
+        if row.get("student_name") == "EMAIL_SENT_NEW_STUDENT":
+            notified_students.add(row.get("audio_url", ""))
+
+    for student_row in all_students:
+        sname = student_row.get("student_name", "")
+        semail = student_row.get("email", "")
+        if not sname or sname in notified_students:
+            continue
+
+        print(f"\n   🆕 New Student: {sname} ({semail})")
+
+        subject = f"🆕 New student joined: {sname}"
+        html = get_new_student_html(sname, semail)
+        text = f"New student joined KeepTheFlow.\nName: {sname}\nEmail: {semail}"
+
+        if send_email(ADMIN_EMAIL, "LightKnight Admin", subject, html, text):
+            try:
+                sb.table("qrasm_recordings").insert({
+                    "student_name": "EMAIL_SENT_NEW_STUDENT",
+                    "assignment_id": "keeptheflow_notifier",
+                    "instance_number": 0,
+                    "audio_url": sname
+                }).execute()
+            except:
+                pass
 
     # Save checkpoint
     set_last_check_timestamp(now_str)
