@@ -2,4 +2,3 @@ requests
 pytz
 google-api-python-client
 google-auth
-supabase==2.31.0

@@ -1,15 +1,14 @@
 #!/usr/bin/env python3
 """
-KeepTheFlow Automated Email Notifier
-=====================================
-Runs alongside wa_reminder.py via GitHub Actions (every 30 minutes).
+KeepTheFlow Email Notifier v2 (rebuilt from scratch)
+=====================================================
+Uses requests + Supabase REST API directly (no supabase Python package).
+Same email engine as wa_reminder.py (which works on GitHub Actions).
 
-Flow:
-  1. New student registers → Admin gets notified with name + email
-  2. Student records instances → Admin gets notified with deep links
-  3. Admin gives feedback → Student gets notified with deep links
-
-Uses the same Gmail SMTP + anti-spam logic as the notionA Tri-Literal system.
+Three triggers:
+  1. New student registers -> Admin gets notified
+  2. Student records instances -> Admin gets notified with deep links
+  3. Admin gives feedback -> Student gets notified with deep links
 """
 
 import os
@@ -17,30 +16,26 @@ import sys
 import json
 import smtplib
 import email.utils
+import requests
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 from datetime import datetime, timezone
 
-try:
-    from supabase import create_client, Client
-except ImportError:
-    print("[WARN] supabase package not installed, skipping KeepTheFlow notifier")
-    sys.exit(0)
-
-# -- Configuration (reuses existing wa_reminder.py GitHub secrets) -----
+# -- Config --
 GMAIL_ADDRESS      = os.environ.get("GMAIL_ADDRESS")
 GMAIL_APP_PASSWORD = os.environ.get("GMAIL_APP_PASSWORD")
 ADMIN_EMAIL        = "lightknightf1@gmail.com"
 
-_DEFAULT_SB_URL = "https://lhebavvnrwqojbhyodwc.supabase.co"
-_DEFAULT_SB_KEY = "sb_publishable_JW75ayCf5SbvyT-02GmjNQ_vFpivPTU"
-SUPABASE_URL = os.environ.get("SUPABASE_URL") or _DEFAULT_SB_URL
-SUPABASE_KEY = os.environ.get("SUPABASE_KEY") or _DEFAULT_SB_KEY
+SB_URL = os.environ.get("SUPABASE_URL") or "https://lhebavvnrwqojbhyodwc.supabase.co"
+SB_KEY = os.environ.get("SUPABASE_KEY") or "sb_publishable_JW75ayCf5SbvyT-02GmjNQ_vFpivPTU"
+SB_HEADERS = {
+    "apikey": SB_KEY,
+    "Authorization": f"Bearer {SB_KEY}",
+    "Content-Type": "application/json",
+    "Prefer": "return=representation",
+}
 
-# -- Portal base URL (Vercel deployment) --
-PORTAL_BASE = "https://keep-the-flow.vercel.app"
-
-# -- Lesson ID -> URL path mapping --
+PORTAL = "https://keep-the-flow.vercel.app"
 LESSON_PATHS = {
     "idgham_yw_lesson": "lessons/idgham-yw-5-12",
     "qrasm_iqlab_ikhfa": "lessons/iqlab-ikhfa-shafawi",
@@ -48,156 +43,35 @@ LESSON_PATHS = {
     "extended_humming": "lessons/extended-humming",
 }
 
-try:
-    sb: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
-except Exception as e:
-    print(f"[FATAL] Cannot create Supabase client: {e}")
-    print(f"  URL used: {SUPABASE_URL[:30]}...")
-    print(f"  KEY used: {SUPABASE_KEY[:15]}...")
-    sys.exit(1)
+
+# ======= SUPABASE REST HELPERS =======
+
+def sb_get(table, params=""):
+    """GET rows from a Supabase table."""
+    url = f"{SB_URL}/rest/v1/{table}?{params}"
+    r = requests.get(url, headers=SB_HEADERS, timeout=15)
+    r.raise_for_status()
+    return r.json()
+
+def sb_insert(table, data):
+    """INSERT a row into a Supabase table."""
+    url = f"{SB_URL}/rest/v1/{table}"
+    r = requests.post(url, headers=SB_HEADERS, json=data, timeout=15)
+    r.raise_for_status()
+    return r.json()
+
+def sb_delete(table, params):
+    """DELETE rows from a Supabase table."""
+    url = f"{SB_URL}/rest/v1/{table}?{params}"
+    r = requests.delete(url, headers=SB_HEADERS, timeout=15)
+    r.raise_for_status()
 
 
-# =======================================================================
-# EMAIL ENGINE (mirrors wa_reminder.py anti-spam headers exactly)
-# =======================================================================
+# ======= EMAIL ENGINE (same as wa_reminder.py) =======
 
-def get_admin_notification_html(student_name, student_email, lesson_id, instances, total_count):
-    """Generate the HTML email sent to the admin when a student submits new recordings."""
-    lesson_path = LESSON_PATHS.get(lesson_id, f"lessons/{lesson_id}")
-
-    # Build instance links
-    instance_links = ""
-    for inst in instances[:10]:  # Cap at 10 links to keep email clean
-        link = f"{PORTAL_BASE}/{lesson_path}/?admin=true&scrollTo={inst}"
-        instance_links += f'<tr><td style="padding:8px 12px;font-size:14px;color:#2D2D2D;border-bottom:1px solid #e8e0c8;">Instance #{inst}</td><td style="padding:8px 12px;text-align:right;border-bottom:1px solid #e8e0c8;"><a href="{link}" style="color:#c5a44e;font-weight:600;text-decoration:none;">Review →</a></td></tr>'
-
-    if len(instances) > 10:
-        instance_links += f'<tr><td colspan="2" style="padding:8px 12px;font-size:13px;color:#8a95a8;">...and {len(instances)-10} more</td></tr>'
-
-    admin_link = f"{PORTAL_BASE}/{lesson_path}/?admin=true"
-    email_info = f"<br/><span style='color:#8a95a8;font-size:13px;'>Email: {student_email}</span>" if student_email else ""
-
-    return f"""<!DOCTYPE html>
-<html lang="en">
-<head><meta charset="UTF-8"/><meta name="viewport" content="width=device-width,initial-scale=1.0"/><title>New Student Recordings</title></head>
-<body style="margin:0;padding:0;background-color:#f7f5ef;font-family:'Segoe UI',Roboto,'Helvetica Neue',Arial,sans-serif;">
-  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background-color:#f7f5ef;">
-    <tr><td align="center" style="padding:24px 16px;">
-      <table role="presentation" width="600" cellpadding="0" cellspacing="0" style="max-width:600px;width:100%;background-color:#ffffff;border-radius:16px;overflow:hidden;box-shadow:0 1px 3px rgba(0,0,0,0.06);">
-        <tr><td style="background:linear-gradient(135deg,#1a2744 0%,#2a3a5e 100%);padding:28px 32px;text-align:center;">
-          <h1 style="margin:0;font-size:22px;font-weight:700;color:#c5a44e;letter-spacing:0.5px;">✦ Keep The Flow</h1>
-        </td></tr>
-        <tr><td style="padding:32px;">
-          <h2 style="margin:0 0 16px;font-size:20px;color:#1a2744;font-weight:600;">🎙️ New Student Recordings</h2>
-          <p style="margin:0 0 14px;font-size:15px;color:#2D2D2D;line-height:1.6;">
-            Student <strong style="color:#1a2744;">{student_name}</strong> has submitted <strong style="color:#c5a44e;">{len(instances)}</strong> new recording(s).{email_info}
-          </p>
-          <p style="margin:0 0 8px;font-size:13px;color:#8a95a8;">Total submissions for this lesson: {total_count}</p>
-          <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin:16px 0;border:1px solid #e8e0c8;border-radius:8px;overflow:hidden;">
-            <tr style="background:#f7f5ef;"><th style="padding:10px 12px;text-align:left;font-size:13px;color:#8a95a8;font-weight:600;">Instance</th><th style="padding:10px 12px;text-align:right;font-size:13px;color:#8a95a8;font-weight:600;">Action</th></tr>
-            {instance_links}
-          </table>
-          <a href="{admin_link}" style="display:inline-block;background:linear-gradient(135deg,#1a2744,#2a3a5e);color:#c5a44e;text-decoration:none;padding:14px 28px;border-radius:8px;font-weight:700;font-size:15px;margin-top:8px;">Open Admin Dashboard →</a>
-          <hr style="border:none;border-top:1px solid #e8e0c8;margin:24px 0;"/>
-          <p style="margin:0;font-size:15px;color:#2D2D2D;line-height:1.6;">Best,<br/>The KeepTheFlow System</p>
-        </td></tr>
-        <tr><td style="background-color:#1a2744;padding:24px 32px;text-align:center;">
-          <p style="margin:0;font-size:13px;color:#a0aec0;">Automated notification from KeepTheFlow.</p>
-        </td></tr>
-      </table>
-    </td></tr>
-  </table>
-</body></html>"""
-
-
-def get_student_notification_html(student_name, lesson_id, instances):
-    """Generate the HTML email sent to the student when the admin gives feedback."""
-    lesson_path = LESSON_PATHS.get(lesson_id, f"lessons/{lesson_id}")
-
-    instance_links = ""
-    for inst in instances[:10]:
-        link = f"{PORTAL_BASE}/{lesson_path}/?scrollTo={inst}"
-        instance_links += f'<tr><td style="padding:8px 12px;font-size:14px;color:#2D2D2D;border-bottom:1px solid #e8e0c8;">Instance #{inst}</td><td style="padding:8px 12px;text-align:right;border-bottom:1px solid #e8e0c8;"><a href="{link}" style="color:#c5a44e;font-weight:600;text-decoration:none;">Check Feedback →</a></td></tr>'
-
-    if len(instances) > 10:
-        instance_links += f'<tr><td colspan="2" style="padding:8px 12px;font-size:13px;color:#8a95a8;">...and {len(instances)-10} more</td></tr>'
-
-    lesson_link = f"{PORTAL_BASE}/{lesson_path}/"
-
-    return f"""<!DOCTYPE html>
-<html lang="en">
-<head><meta charset="UTF-8"/><meta name="viewport" content="width=device-width,initial-scale=1.0"/><title>Your Homework Has Been Reviewed!</title></head>
-<body style="margin:0;padding:0;background-color:#f7f5ef;font-family:'Segoe UI',Roboto,'Helvetica Neue',Arial,sans-serif;">
-  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background-color:#f7f5ef;">
-    <tr><td align="center" style="padding:24px 16px;">
-      <table role="presentation" width="600" cellpadding="0" cellspacing="0" style="max-width:600px;width:100%;background-color:#ffffff;border-radius:16px;overflow:hidden;box-shadow:0 1px 3px rgba(0,0,0,0.06);">
-        <tr><td style="background:linear-gradient(135deg,#1a2744 0%,#2a3a5e 100%);padding:28px 32px;text-align:center;">
-          <h1 style="margin:0;font-size:22px;font-weight:700;color:#c5a44e;letter-spacing:0.5px;">✦ Keep The Flow</h1>
-        </td></tr>
-        <tr><td style="padding:32px;">
-          <h2 style="margin:0 0 16px;font-size:20px;color:#1a2744;font-weight:600;">🎓 Your Homework Has Been Reviewed!</h2>
-          <p style="margin:0 0 14px;font-size:15px;color:#2D2D2D;line-height:1.6;">
-            سلامٌ عليكم <strong style="color:#1a2744;">{student_name}</strong>,
-          </p>
-          <p style="margin:0 0 14px;font-size:15px;color:#2D2D2D;line-height:1.6;">
-            Great news! Your teacher has reviewed <strong style="color:#c5a44e;">{len(instances)}</strong> of your recordings. Click below to see your feedback:
-          </p>
-          <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin:16px 0;border:1px solid #e8e0c8;border-radius:8px;overflow:hidden;">
-            <tr style="background:#f7f5ef;"><th style="padding:10px 12px;text-align:left;font-size:13px;color:#8a95a8;font-weight:600;">Instance</th><th style="padding:10px 12px;text-align:right;font-size:13px;color:#8a95a8;font-weight:600;">Action</th></tr>
-            {instance_links}
-          </table>
-          <a href="{lesson_link}" style="display:inline-block;background:linear-gradient(135deg,#1a2744,#2a3a5e);color:#c5a44e;text-decoration:none;padding:14px 28px;border-radius:8px;font-weight:700;font-size:15px;margin-top:8px;">Open Your Lesson →</a>
-          <hr style="border:none;border-top:1px solid #e8e0c8;margin:24px 0;"/>
-          <p style="margin:0;font-size:15px;color:#2D2D2D;line-height:1.6;">Keep up the great work!<br/>Best,<br/>Faris</p>
-        </td></tr>
-        <tr><td style="background-color:#1a2744;padding:24px 32px;text-align:center;">
-          <p style="margin:0;font-size:13px;color:#a0aec0;">Automated notification from KeepTheFlow.</p>
-        </td></tr>
-      </table>
-    </td></tr>
-  </table>
-</body></html>"""
-
-
-def get_new_student_html(student_name, student_email):
-    """Generate the HTML email sent to admin when a new student registers."""
-    portal_link = f"{PORTAL_BASE}"
-
-    return f"""<!DOCTYPE html>
-<html lang="en">
-<head><meta charset="UTF-8"/><meta name="viewport" content="width=device-width,initial-scale=1.0"/><title>New Student Joined</title></head>
-<body style="margin:0;padding:0;background-color:#f7f5ef;font-family:'Segoe UI',Roboto,'Helvetica Neue',Arial,sans-serif;">
-  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background-color:#f7f5ef;">
-    <tr><td align="center" style="padding:24px 16px;">
-      <table role="presentation" width="600" cellpadding="0" cellspacing="0" style="max-width:600px;width:100%;background-color:#ffffff;border-radius:16px;overflow:hidden;box-shadow:0 1px 3px rgba(0,0,0,0.06);">
-        <tr><td style="background:linear-gradient(135deg,#1a2744 0%,#2a3a5e 100%);padding:28px 32px;text-align:center;">
-          <h1 style="margin:0;font-size:22px;font-weight:700;color:#c5a44e;letter-spacing:0.5px;">✦ Keep The Flow</h1>
-        </td></tr>
-        <tr><td style="padding:32px;">
-          <h2 style="margin:0 0 16px;font-size:20px;color:#1a2744;font-weight:600;">🆕 New Student Joined!</h2>
-          <p style="margin:0 0 14px;font-size:15px;color:#2D2D2D;line-height:1.6;">Hello Admin,</p>
-          <p style="margin:0 0 14px;font-size:15px;color:#2D2D2D;line-height:1.6;">A new student has registered on the KeepTheFlow platform:</p>
-          <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin:16px 0;border:1px solid #e8e0c8;border-radius:8px;overflow:hidden;">
-            <tr style="background:#f7f5ef;"><td style="padding:12px 16px;font-size:13px;color:#8a95a8;font-weight:600;width:100px;">Name</td><td style="padding:12px 16px;font-size:15px;color:#1a2744;font-weight:700;">{student_name}</td></tr>
-            <tr><td style="padding:12px 16px;font-size:13px;color:#8a95a8;font-weight:600;border-top:1px solid #e8e0c8;">Email</td><td style="padding:12px 16px;font-size:15px;color:#1a2744;border-top:1px solid #e8e0c8;"><a href="mailto:{student_email}" style="color:#c5a44e;text-decoration:none;">{student_email}</a></td></tr>
-          </table>
-          <a href="{portal_link}" style="display:inline-block;background:linear-gradient(135deg,#1a2744,#2a3a5e);color:#c5a44e;text-decoration:none;padding:14px 28px;border-radius:8px;font-weight:700;font-size:15px;margin-top:8px;">Open Portal →</a>
-          <hr style="border:none;border-top:1px solid #e8e0c8;margin:24px 0;"/>
-          <p style="margin:0;font-size:15px;color:#2D2D2D;line-height:1.6;">Best,<br/>The KeepTheFlow System</p>
-        </td></tr>
-        <tr><td style="background-color:#1a2744;padding:24px 32px;text-align:center;">
-          <p style="margin:0;font-size:13px;color:#a0aec0;">Automated notification from KeepTheFlow.</p>
-        </td></tr>
-      </table>
-    </td></tr>
-  </table>
-</body></html>"""
-
-
-def send_email(to_email, to_name, subject, html_content, text_fallback):
-    """Send email using the exact same SMTP + anti-spam approach as wa_reminder.py."""
+def send_email(to_email, to_name, subject, html_body, text_body):
     if not GMAIL_ADDRESS or not GMAIL_APP_PASSWORD:
-        print("   [WARN] Missing GMAIL_ADDRESS or GMAIL_APP_PASSWORD  skipping email")
+        print(f"   [SKIP] No Gmail credentials - cannot send to {to_email}")
         return False
 
     msg = MIMEMultipart('alternative')
@@ -207,274 +81,248 @@ def send_email(to_email, to_name, subject, html_content, text_fallback):
     msg['Reply-To'] = GMAIL_ADDRESS
     msg['Date'] = email.utils.formatdate(localtime=False)
 
-    # Domain alignment to prevent Yahoo/iCloud spam flags (from notionA)
     domain = GMAIL_ADDRESS.split('@')[1] if '@' in GMAIL_ADDRESS else 'gmail.com'
     msg['Message-ID'] = email.utils.make_msgid(domain=domain)
 
-    # Plain text first, HTML last (per RFC  HTML must be attached LAST)
-    msg.attach(MIMEText(text_fallback, 'plain', 'utf-8'))
-    msg.attach(MIMEText(html_content, 'html', 'utf-8'))
+    msg.attach(MIMEText(text_body, 'plain', 'utf-8'))
+    msg.attach(MIMEText(html_body, 'html', 'utf-8'))
 
     try:
         with smtplib.SMTP_SSL('smtp.gmail.com', 465) as server:
             server.login(GMAIL_ADDRESS, GMAIL_APP_PASSWORD)
             server.send_message(msg)
-        print(f"   [OK] Sent email to {to_email} ({subject})")
+        print(f"   [OK] Email sent to {to_email}")
         return True
     except Exception as e:
-        print(f"   [FAIL] Failed to send to {to_email}: {e}")
+        print(f"   [FAIL] Email to {to_email}: {e}")
         return False
 
 
-# =======================================================================
-# CORE LOGIC
-# =======================================================================
+# ======= EMAIL TEMPLATES =======
 
-def get_last_check_timestamp():
-    """Read the last-check timestamp from Supabase state tracking."""
+def email_header():
+    return """<tr><td style="background:linear-gradient(135deg,#1a2744,#2a3a5e);padding:28px 32px;text-align:center;">
+      <h1 style="margin:0;font-size:22px;font-weight:700;color:#c5a44e;letter-spacing:0.5px;">\u2726 Keep The Flow</h1>
+    </td></tr>"""
+
+def email_footer():
+    return """<tr><td style="background-color:#1a2744;padding:24px 32px;text-align:center;">
+      <p style="margin:0;font-size:13px;color:#a0aec0;">Automated notification from KeepTheFlow.</p>
+    </td></tr>"""
+
+def email_wrap(inner):
+    return f"""<!DOCTYPE html><html><head><meta charset="UTF-8"/></head>
+<body style="margin:0;padding:0;background:#f7f5ef;font-family:'Segoe UI',Roboto,Arial,sans-serif;">
+<table width="100%" cellpadding="0" cellspacing="0" style="background:#f7f5ef;">
+<tr><td align="center" style="padding:24px 16px;">
+<table width="600" cellpadding="0" cellspacing="0" style="max-width:600px;width:100%;background:#fff;border-radius:16px;overflow:hidden;box-shadow:0 1px 3px rgba(0,0,0,0.06);">
+{email_header()}
+<tr><td style="padding:32px;">{inner}</td></tr>
+{email_footer()}
+</table></td></tr></table></body></html>"""
+
+
+def admin_new_student_email(name, student_email):
+    inner = f"""
+    <h2 style="margin:0 0 16px;font-size:20px;color:#1a2744;">New Student Joined!</h2>
+    <p style="font-size:15px;color:#2D2D2D;">A new student registered on KeepTheFlow:</p>
+    <table width="100%" style="margin:16px 0;border:1px solid #e8e0c8;border-radius:8px;overflow:hidden;">
+      <tr style="background:#f7f5ef;"><td style="padding:12px 16px;font-size:13px;color:#8a95a8;width:80px;">Name</td>
+        <td style="padding:12px 16px;font-size:15px;color:#1a2744;font-weight:700;">{name}</td></tr>
+      <tr><td style="padding:12px 16px;font-size:13px;color:#8a95a8;border-top:1px solid #e8e0c8;">Email</td>
+        <td style="padding:12px 16px;font-size:15px;border-top:1px solid #e8e0c8;">
+          <a href="mailto:{student_email}" style="color:#c5a44e;text-decoration:none;">{student_email}</a></td></tr>
+    </table>
+    <a href="{PORTAL}" style="display:inline-block;background:linear-gradient(135deg,#1a2744,#2a3a5e);color:#c5a44e;text-decoration:none;padding:14px 28px;border-radius:8px;font-weight:700;font-size:15px;">Open Portal</a>
+    """
+    return email_wrap(inner)
+
+
+def admin_new_recordings_email(student_name, student_email, lesson_id, instances, total):
+    path = LESSON_PATHS.get(lesson_id, f"lessons/{lesson_id}")
+    rows = ""
+    for inst in instances[:10]:
+        link = f"{PORTAL}/{path}/?admin=true&scrollTo={inst}"
+        rows += f'<tr><td style="padding:8px 12px;font-size:14px;color:#2D2D2D;border-bottom:1px solid #e8e0c8;">Instance #{inst}</td><td style="padding:8px 12px;text-align:right;border-bottom:1px solid #e8e0c8;"><a href="{link}" style="color:#c5a44e;font-weight:600;text-decoration:none;">Review</a></td></tr>'
+    if len(instances) > 10:
+        rows += f'<tr><td colspan="2" style="padding:8px 12px;font-size:13px;color:#8a95a8;">...and {len(instances)-10} more</td></tr>'
+
+    email_line = f"<br/><span style='color:#8a95a8;font-size:13px;'>Email: {student_email}</span>" if student_email else ""
+    admin_link = f"{PORTAL}/{path}/?admin=true"
+
+    inner = f"""
+    <h2 style="margin:0 0 16px;font-size:20px;color:#1a2744;">New Student Recordings</h2>
+    <p style="font-size:15px;color:#2D2D2D;">
+      Student <strong style="color:#1a2744;">{student_name}</strong> submitted <strong style="color:#c5a44e;">{len(instances)}</strong> new recording(s).{email_line}
+    </p>
+    <p style="font-size:13px;color:#8a95a8;">Total submissions: {total}</p>
+    <table width="100%" style="margin:16px 0;border:1px solid #e8e0c8;border-radius:8px;overflow:hidden;">
+      <tr style="background:#f7f5ef;"><th style="padding:10px 12px;text-align:left;font-size:13px;color:#8a95a8;">Instance</th><th style="padding:10px 12px;text-align:right;font-size:13px;color:#8a95a8;">Action</th></tr>
+      {rows}
+    </table>
+    <a href="{admin_link}" style="display:inline-block;background:linear-gradient(135deg,#1a2744,#2a3a5e);color:#c5a44e;text-decoration:none;padding:14px 28px;border-radius:8px;font-weight:700;font-size:15px;">Open Admin Dashboard</a>
+    """
+    return email_wrap(inner)
+
+
+def student_feedback_email(student_name, lesson_id, instances):
+    path = LESSON_PATHS.get(lesson_id, f"lessons/{lesson_id}")
+    rows = ""
+    for inst in instances[:10]:
+        link = f"{PORTAL}/{path}/?scrollTo={inst}"
+        rows += f'<tr><td style="padding:8px 12px;font-size:14px;color:#2D2D2D;border-bottom:1px solid #e8e0c8;">Instance #{inst}</td><td style="padding:8px 12px;text-align:right;border-bottom:1px solid #e8e0c8;"><a href="{link}" style="color:#c5a44e;font-weight:600;text-decoration:none;">Check Feedback</a></td></tr>'
+
+    inner = f"""
+    <h2 style="margin:0 0 16px;font-size:20px;color:#1a2744;">Your Homework Has Been Reviewed!</h2>
+    <p style="font-size:15px;color:#2D2D2D;">Your teacher has reviewed <strong style="color:#c5a44e;">{len(instances)}</strong> of your recordings. Click below to see your feedback:</p>
+    <table width="100%" style="margin:16px 0;border:1px solid #e8e0c8;border-radius:8px;overflow:hidden;">
+      <tr style="background:#f7f5ef;"><th style="padding:10px 12px;text-align:left;font-size:13px;color:#8a95a8;">Instance</th><th style="padding:10px 12px;text-align:right;font-size:13px;color:#8a95a8;">Action</th></tr>
+      {rows}
+    </table>
+    <a href="{PORTAL}/{path}/" style="display:inline-block;background:linear-gradient(135deg,#1a2744,#2a3a5e);color:#c5a44e;text-decoration:none;padding:14px 28px;border-radius:8px;font-weight:700;font-size:15px;">Open Your Lesson</a>
+    <hr style="border:none;border-top:1px solid #e8e0c8;margin:24px 0;"/>
+    <p style="font-size:15px;color:#2D2D2D;">Keep up the great work!<br/>Best,<br/>Faris</p>
+    """
+    return email_wrap(inner)
+
+
+# ======= TRACKING (which notifications already sent) =======
+
+def get_sent_keys(tag):
+    """Get set of already-notified keys for a given tag."""
+    rows = sb_get("qrasm_recordings", f"student_name=eq.{tag}&select=audio_url")
+    return {r.get("audio_url", "") for r in rows}
+
+def mark_sent(tag, key):
+    """Mark a notification as sent."""
     try:
-        res = sb.table("qrasm_recordings").select("audio_url") \
-            .eq("student_name", "SYSTEM_LAST_CHECK") \
-            .eq("assignment_id", "keeptheflow_notifier") \
-            .limit(1).execute()
-        if res.data and res.data[0].get("audio_url"):
-            return res.data[0]["audio_url"]
-    except:
-        pass
-    return None
-
-
-def set_last_check_timestamp(ts_str):
-    """Update the last-check timestamp in Supabase."""
-    try:
-        # Delete old
-        sb.table("qrasm_recordings").delete() \
-            .eq("student_name", "SYSTEM_LAST_CHECK") \
-            .eq("assignment_id", "keeptheflow_notifier").execute()
-        # Insert new
-        sb.table("qrasm_recordings").insert({
-            "student_name": "SYSTEM_LAST_CHECK",
+        sb_insert("qrasm_recordings", {
+            "student_name": tag,
             "assignment_id": "keeptheflow_notifier",
             "instance_number": 0,
-            "audio_url": ts_str
-        }).execute()
-    except Exception as e:
-        print(f"   [WARN] Failed to save check timestamp: {e}")
-
-
-def get_student_email(student_name):
-    """Look up a student's email from the qrasm_student_emails table."""
-    try:
-        res = sb.table("qrasm_student_emails").select("email") \
-            .eq("student_name", student_name).limit(1).execute()
-        if res.data:
-            return res.data[0].get("email", "")
-    except:
+            "audio_url": key,
+        })
+    except Exception:
         pass
-    return ""
 
+
+# ======= MAIN LOGIC =======
 
 def run():
-    print("=== KeepTheFlow Notifier ===")
-    now_str = datetime.now(timezone.utc).isoformat()
-    last_check = get_last_check_timestamp()
+    print("=== KeepTheFlow Notifier v2 ===")
 
-    print(f"   Last check: {last_check or 'NEVER (first run)'}")
-    print(f"   Current:    {now_str}")
-
-    # -- Fetch ALL recordings --
+    # Test Supabase connection
     try:
-        res = sb.table("qrasm_recordings").select("*").execute()
-        all_rows = res.data or []
+        test = sb_get("qrasm_recordings", "select=id&limit=1")
+        print(f"   Supabase OK")
     except Exception as e:
-        print(f"   [FAIL] Failed to fetch recordings: {e}")
-        return
+        print(f"   [FATAL] Supabase connection failed: {e}")
+        sys.exit(1)
 
-    # Filter out system/tracking rows
-    real_recordings = []     # Student submissions
-    admin_feedbacks = []     # ADMIN_FEEDBACK_* rows
-    notified_submissions = set()  # (assignment_id, student_name, instance_number) already notified
-    notified_feedbacks = set()
+    # Get all recordings
+    all_rows = sb_get("qrasm_recordings", "select=*")
+    print(f"   Total rows: {len(all_rows)}")
 
+    # Get all student emails
+    try:
+        all_students = sb_get("qrasm_student_emails", "select=*")
+    except Exception:
+        all_students = []
+    print(f"   Registered students: {len(all_students)}")
+
+    # Build email lookup
+    email_lookup = {s.get("student_name", ""): s.get("email", "") for s in all_students}
+
+    # Separate rows
+    real_recordings = []
+    admin_feedbacks = []
     for row in all_rows:
         sname = row.get("student_name", "")
-        aid = row.get("assignment_id", "")
-        inst = row.get("instance_number", 0)
-        created = row.get("created_at", "")
+        if sname.startswith("EMAIL_SENT_") or sname == "SYSTEM_LAST_CHECK" or sname == "ADMIN_HIDDEN":
+            continue
+        if sname.startswith("ADMIN_FEEDBACK_"):
+            admin_feedbacks.append(row)
+        elif not sname.startswith("STUDENT_EMAIL_"):
+            real_recordings.append(row)
 
-        # Skip system rows
-        if sname in ("SYSTEM_LAST_CHECK", "ADMIN_HIDDEN", "EMAIL_SENT_SUBMISSIONS", "EMAIL_SENT_FEEDBACK"):
-            # Track previously notified items
-            if sname == "EMAIL_SENT_SUBMISSIONS":
-                target = row.get("audio_url", "")  # "student_name|instance_number"
-                notified_submissions.add(f"{aid}|{target}")
-            elif sname == "EMAIL_SENT_FEEDBACK":
-                target = row.get("audio_url", "")
-                notified_feedbacks.add(f"{aid}|{target}")
+    # ---- TRIGGER 1: New student registrations ----
+    sent_students = get_sent_keys("EMAIL_SENT_NEW_STUDENT")
+    for s in all_students:
+        sname = s.get("student_name", "")
+        semail = s.get("email", "")
+        if not sname or sname in sent_students:
             continue
 
-        if sname.startswith("ADMIN_FEEDBACK_"):
-            actual_student = sname.replace("ADMIN_FEEDBACK_", "")
-            admin_feedbacks.append({
-                "assignment_id": aid,
-                "student_name": actual_student,
-                "instance_number": inst,
-                "created_at": created,
-                "key": f"{aid}|{actual_student}|{inst}"
-            })
-        elif not sname.startswith("STUDENT_EMAIL_"):
-            real_recordings.append({
-                "assignment_id": aid,
-                "student_name": sname,
-                "instance_number": inst,
-                "created_at": created,
-                "key": f"{aid}|{sname}|{inst}"
-            })
+        print(f"\n   [NEW STUDENT] {sname} ({semail})")
+        html = admin_new_student_email(sname, semail)
+        text = f"New student joined KeepTheFlow: {sname} ({semail})"
+        if send_email(ADMIN_EMAIL, "KeepTheFlow Admin", f"New student joined: {sname}", html, text):
+            mark_sent("EMAIL_SENT_NEW_STUDENT", sname)
 
-    # ==================================================================
-    # 1. ADMIN NOTIFICATIONS: New student submissions
-    # ==================================================================
-    # Group recordings by (assignment_id, student_name)
+    # ---- TRIGGER 2: New recordings -> Admin ----
+    sent_subs = get_sent_keys("EMAIL_SENT_SUBMISSIONS")
     from collections import defaultdict
-    student_groups = defaultdict(list)
+    groups = defaultdict(list)
     for rec in real_recordings:
-        student_groups[(rec["assignment_id"], rec["student_name"])].append(rec)
+        groups[(rec.get("assignment_id",""), rec.get("student_name",""))].append(rec)
 
-    for (aid, student), recs in student_groups.items():
-        # Find NEW recordings (not yet notified)
+    for (aid, student), recs in groups.items():
         new_instances = []
         for r in recs:
-            notify_key = f"{aid}|{student}|{r['instance_number']}"
-            if notify_key not in notified_submissions:
-                new_instances.append(r["instance_number"])
+            key = f"{student}|{r.get('instance_number',0)}"
+            if f"{aid}|{key}" not in sent_subs:
+                new_instances.append(r.get("instance_number", 0))
 
         if not new_instances:
             continue
 
-        total_count = len(recs)
-        student_email = get_student_email(student)
-
-        print(f"\n    Admin Notify: {student} has {len(new_instances)} new recordings in {aid}")
-
-        # Build admin email
-        subject = f" {student} submitted {len(new_instances)} new recording(s)"
-        html = get_admin_notification_html(student, student_email, aid, new_instances, total_count)
-        text = f"{student} submitted {len(new_instances)} new recordings in {aid}. Total: {total_count}."
-
-        if send_email(ADMIN_EMAIL, "KeepTheFlow Admin", subject, html, text):
-            # Mark all as notified
+        semail = email_lookup.get(student, "")
+        print(f"\n   [RECORDINGS] {student} has {len(new_instances)} new in {aid}")
+        html = admin_new_recordings_email(student, semail, aid, new_instances, len(recs))
+        text = f"{student} submitted {len(new_instances)} new recordings in {aid}."
+        if send_email(ADMIN_EMAIL, "KeepTheFlow Admin", f"{student} submitted {len(new_instances)} recording(s)", html, text):
             for inst in new_instances:
-                try:
-                    sb.table("qrasm_recordings").insert({
-                        "student_name": "EMAIL_SENT_SUBMISSIONS",
-                        "assignment_id": aid,
-                        "instance_number": 0,
-                        "audio_url": f"{student}|{inst}"
-                    }).execute()
-                except:
-                    pass
+                mark_sent("EMAIL_SENT_SUBMISSIONS", f"{aid}|{student}|{inst}")
 
-    # ==================================================================
-    # 2. STUDENT NOTIFICATIONS: New admin feedback
-    # ==================================================================
-    feedback_groups = defaultdict(list)
+    # ---- TRIGGER 3: Admin feedback -> Student ----
+    sent_fb = get_sent_keys("EMAIL_SENT_FEEDBACK")
+    fb_groups = defaultdict(list)
     for fb in admin_feedbacks:
-        feedback_groups[(fb["assignment_id"], fb["student_name"])].append(fb)
+        actual_student = fb.get("student_name", "").replace("ADMIN_FEEDBACK_", "")
+        fb_groups[(fb.get("assignment_id",""), actual_student)].append(fb)
 
-    for (aid, student), fbs in feedback_groups.items():
-        # Find NEW feedbacks
-        new_fb_instances = []
+    for (aid, student), fbs in fb_groups.items():
+        new_fb = []
         for fb in fbs:
-            notify_key = f"{aid}|{student}|{fb['instance_number']}"
-            if notify_key not in notified_feedbacks:
-                new_fb_instances.append(fb["instance_number"])
+            key = f"{aid}|{student}|{fb.get('instance_number',0)}"
+            if key not in sent_fb:
+                new_fb.append(fb.get("instance_number", 0))
 
-        if not new_fb_instances:
+        if not new_fb:
             continue
 
-        student_email = get_student_email(student)
-        if not student_email:
-            print(f"   [WARN] No email for {student}  cannot notify about feedback")
-            # Still mark as processed to avoid repeat logs
-            for inst in new_fb_instances:
-                try:
-                    sb.table("qrasm_recordings").insert({
-                        "student_name": "EMAIL_SENT_FEEDBACK",
-                        "assignment_id": aid,
-                        "instance_number": 0,
-                        "audio_url": f"{student}|{inst}"
-                    }).execute()
-                except:
-                    pass
+        semail = email_lookup.get(student, "")
+        if not semail:
+            print(f"   [SKIP] No email for {student} - cannot send feedback notification")
+            for inst in new_fb:
+                mark_sent("EMAIL_SENT_FEEDBACK", f"{aid}|{student}|{inst}")
             continue
 
-        print(f"\n    Student Notify: {student} ({student_email}) has {len(new_fb_instances)} new feedbacks in {aid}")
+        print(f"\n   [FEEDBACK] {student} has {len(new_fb)} new feedbacks in {aid}")
+        html = student_feedback_email(student, aid, new_fb)
+        text = f"Your teacher reviewed {len(new_fb)} of your recordings. Check your lesson page."
+        if send_email(semail, student, "Your homework has been reviewed!", html, text):
+            for inst in new_fb:
+                mark_sent("EMAIL_SENT_FEEDBACK", f"{aid}|{student}|{inst}")
 
-        subject = f" Your homework has been reviewed!"
-        html = get_student_notification_html(student, aid, new_fb_instances)
-        text = f"سلامٌ عليكم {student}, your teacher has reviewed {len(new_fb_instances)} of your recordings. Check your lesson page for feedback."
-
-        if send_email(student_email, student, subject, html, text):
-            for inst in new_fb_instances:
-                try:
-                    sb.table("qrasm_recordings").insert({
-                        "student_name": "EMAIL_SENT_FEEDBACK",
-                        "assignment_id": aid,
-                        "instance_number": 0,
-                        "audio_url": f"{student}|{inst}"
-                    }).execute()
-                except:
-                    pass
-
-    # ==================================================================
-    # 3. NEW STUDENT REGISTRATION: Notify admin
-    # ==================================================================
-    try:
-        students_res = sb.table("qrasm_student_emails").select("*").execute()
-        all_students = students_res.data or []
-    except Exception as e:
-        print(f"   [WARN] Failed to fetch student emails: {e}")
-        all_students = []
-
-    # Find which students we already notified about
-    notified_students = set()
-    for row in all_rows:
-        if row.get("student_name") == "EMAIL_SENT_NEW_STUDENT":
-            notified_students.add(row.get("audio_url", ""))
-
-    for student_row in all_students:
-        sname = student_row.get("student_name", "")
-        semail = student_row.get("email", "")
-        if not sname or sname in notified_students:
-            continue
-
-        print(f"\n    New Student: {sname} ({semail})")
-
-        subject = f" New student joined: {sname}"
-        html = get_new_student_html(sname, semail)
-        text = f"New student joined KeepTheFlow.\nName: {sname}\nEmail: {semail}"
-
-        if send_email(ADMIN_EMAIL, "KeepTheFlow Admin", subject, html, text):
-            try:
-                sb.table("qrasm_recordings").insert({
-                    "student_name": "EMAIL_SENT_NEW_STUDENT",
-                    "assignment_id": "keeptheflow_notifier",
-                    "instance_number": 0,
-                    "audio_url": sname
-                }).execute()
-            except:
-                pass
-
-    # Save checkpoint
-    set_last_check_timestamp(now_str)
-    print(f"\n   [OK] Check complete at {now_str}")
+    print("\n   === Done ===")
 
 
 if __name__ == "__main__":
     try:
         run()
     except Exception as e:
-        print(f"\n   FATAL ERROR: {e}")
+        print(f"\n   [FATAL] {e}")
         import traceback
         traceback.print_exc()
         sys.exit(1)
