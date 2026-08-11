@@ -74,7 +74,7 @@ def get_admin_notification_html(student_name, student_email, lesson_id, instance
     <tr><td align="center" style="padding:24px 16px;">
       <table role="presentation" width="600" cellpadding="0" cellspacing="0" style="max-width:600px;width:100%;background-color:#ffffff;border-radius:16px;overflow:hidden;box-shadow:0 1px 3px rgba(0,0,0,0.06);">
         <tr><td style="background:linear-gradient(135deg,#1a2744 0%,#2a3a5e 100%);padding:28px 32px;text-align:center;">
-          <h1 style="margin:0;font-size:22px;font-weight:700;color:#c5a44e;letter-spacing:0.5px;">✦ LightKnight Flow</h1>
+          <h1 style="margin:0;font-size:22px;font-weight:700;color:#c5a44e;letter-spacing:0.5px;">✦ Keep The Flow</h1>
         </td></tr>
         <tr><td style="padding:32px;">
           <h2 style="margin:0 0 16px;font-size:20px;color:#1a2744;font-weight:600;">🎙️ New Student Recordings</h2>
@@ -88,7 +88,7 @@ def get_admin_notification_html(student_name, student_email, lesson_id, instance
           </table>
           <a href="{admin_link}" style="display:inline-block;background:linear-gradient(135deg,#1a2744,#2a3a5e);color:#c5a44e;text-decoration:none;padding:14px 28px;border-radius:8px;font-weight:700;font-size:15px;margin-top:8px;">Open Admin Dashboard →</a>
           <hr style="border:none;border-top:1px solid #e8e0c8;margin:24px 0;"/>
-          <p style="margin:0;font-size:15px;color:#2D2D2D;line-height:1.6;">Best,<br/>The LightKnight System</p>
+          <p style="margin:0;font-size:15px;color:#2D2D2D;line-height:1.6;">Best,<br/>The KeepTheFlow System</p>
         </td></tr>
         <tr><td style="background-color:#1a2744;padding:24px 32px;text-align:center;">
           <p style="margin:0;font-size:13px;color:#a0aec0;">Automated notification from KeepTheFlow.</p>
@@ -121,7 +121,7 @@ def get_student_notification_html(student_name, lesson_id, instances):
     <tr><td align="center" style="padding:24px 16px;">
       <table role="presentation" width="600" cellpadding="0" cellspacing="0" style="max-width:600px;width:100%;background-color:#ffffff;border-radius:16px;overflow:hidden;box-shadow:0 1px 3px rgba(0,0,0,0.06);">
         <tr><td style="background:linear-gradient(135deg,#1a2744 0%,#2a3a5e 100%);padding:28px 32px;text-align:center;">
-          <h1 style="margin:0;font-size:22px;font-weight:700;color:#c5a44e;letter-spacing:0.5px;">✦ LightKnight Flow</h1>
+          <h1 style="margin:0;font-size:22px;font-weight:700;color:#c5a44e;letter-spacing:0.5px;">✦ Keep The Flow</h1>
         </td></tr>
         <tr><td style="padding:32px;">
           <h2 style="margin:0 0 16px;font-size:20px;color:#1a2744;font-weight:600;">🎓 Your Homework Has Been Reviewed!</h2>
@@ -160,7 +160,7 @@ def get_new_student_html(student_name, student_email):
     <tr><td align="center" style="padding:24px 16px;">
       <table role="presentation" width="600" cellpadding="0" cellspacing="0" style="max-width:600px;width:100%;background-color:#ffffff;border-radius:16px;overflow:hidden;box-shadow:0 1px 3px rgba(0,0,0,0.06);">
         <tr><td style="background:linear-gradient(135deg,#1a2744 0%,#2a3a5e 100%);padding:28px 32px;text-align:center;">
-          <h1 style="margin:0;font-size:22px;font-weight:700;color:#c5a44e;letter-spacing:0.5px;">✦ LightKnight Flow</h1>
+          <h1 style="margin:0;font-size:22px;font-weight:700;color:#c5a44e;letter-spacing:0.5px;">✦ Keep The Flow</h1>
         </td></tr>
         <tr><td style="padding:32px;">
           <h2 style="margin:0 0 16px;font-size:20px;color:#1a2744;font-weight:600;">🆕 New Student Joined!</h2>
@@ -172,7 +172,7 @@ def get_new_student_html(student_name, student_email):
           </table>
           <a href="{portal_link}" style="display:inline-block;background:linear-gradient(135deg,#1a2744,#2a3a5e);color:#c5a44e;text-decoration:none;padding:14px 28px;border-radius:8px;font-weight:700;font-size:15px;margin-top:8px;">Open Portal →</a>
           <hr style="border:none;border-top:1px solid #e8e0c8;margin:24px 0;"/>
-          <p style="margin:0;font-size:15px;color:#2D2D2D;line-height:1.6;">Best,<br/>The LightKnight System</p>
+          <p style="margin:0;font-size:15px;color:#2D2D2D;line-height:1.6;">Best,<br/>The KeepTheFlow System</p>
         </td></tr>
         <tr><td style="background-color:#1a2744;padding:24px 32px;text-align:center;">
           <p style="margin:0;font-size:13px;color:#a0aec0;">Automated notification from KeepTheFlow.</p>
@@ -191,7 +191,7 @@ def send_email(to_email, to_name, subject, html_content, text_fallback):
 
     msg = MIMEMultipart('alternative')
     msg['Subject'] = subject
-    msg['From'] = f"LightKnight Flow <{GMAIL_ADDRESS}>"
+    msg['From'] = f"Keep The Flow <{GMAIL_ADDRESS}>"
     msg['To'] = f"{to_name} <{to_email}>" if to_name else to_email
     msg['Reply-To'] = GMAIL_ADDRESS
     msg['Date'] = email.utils.formatdate(localtime=False)
@@ -350,7 +350,7 @@ def run():
         html = get_admin_notification_html(student, student_email, aid, new_instances, total_count)
         text = f"{student} submitted {len(new_instances)} new recordings in {aid}. Total: {total_count}."
 
-        if send_email(ADMIN_EMAIL, "LightKnight Admin", subject, html, text):
+        if send_email(ADMIN_EMAIL, "KeepTheFlow Admin", subject, html, text):
             # Mark all as notified
             for inst in new_instances:
                 try:
@@ -443,7 +443,7 @@ def run():
         html = get_new_student_html(sname, semail)
         text = f"New student joined KeepTheFlow.\nName: {sname}\nEmail: {semail}"
 
-        if send_email(ADMIN_EMAIL, "LightKnight Admin", subject, html, text):
+        if send_email(ADMIN_EMAIL, "KeepTheFlow Admin", subject, html, text):
             try:
                 sb.table("qrasm_recordings").insert({
                     "student_name": "EMAIL_SENT_NEW_STUDENT",
