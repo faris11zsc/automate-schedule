@@ -41,6 +41,9 @@ PORTAL_BASE = "https://keep-the-flow.vercel.app"
 # ── Lesson ID → URL path mapping ──
 LESSON_PATHS = {
     "idgham_yw_lesson": "lessons/idgham-yw-5-12",
+    "qrasm_iqlab_ikhfa": "lessons/iqlab-ikhfa-shafawi",
+    "qrasm_idgham_yw": "lessons/idgham-yw",
+    "extended_humming": "lessons/extended-humming",
 }
 
 sb: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
@@ -460,4 +463,10 @@ def run():
 
 
 if __name__ == "__main__":
-    run()
+    try:
+        run()
+    except Exception as e:
+        print(f"\n   FATAL ERROR: {e}")
+        import traceback
+        traceback.print_exc()
+        sys.exit(1)
