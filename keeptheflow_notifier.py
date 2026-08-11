@@ -24,10 +24,10 @@ from datetime import datetime, timezone
 try:
     from supabase import create_client, Client
 except ImportError:
-    print("⚠ supabase package not installed, skipping KeepTheFlow notifier")
+    print("[WARN] supabase package not installed, skipping KeepTheFlow notifier")
     sys.exit(0)
 
-# ── Configuration (reuses existing wa_reminder.py GitHub secrets) ─────
+# -- Configuration (reuses existing wa_reminder.py GitHub secrets) -----
 GMAIL_ADDRESS      = os.environ.get("GMAIL_ADDRESS")
 GMAIL_APP_PASSWORD = os.environ.get("GMAIL_APP_PASSWORD")
 ADMIN_EMAIL        = "lightknightf1@gmail.com"
@@ -35,10 +35,10 @@ ADMIN_EMAIL        = "lightknightf1@gmail.com"
 SUPABASE_URL = os.environ.get("SUPABASE_URL", "https://lhebavvnrwqojbhyodwc.supabase.co")
 SUPABASE_KEY = os.environ.get("SUPABASE_KEY", "sb_publishable_JW75ayCf5SbvyT-02GmjNQ_vFpivPTU")
 
-# ── Portal base URL (Vercel deployment) ──
+# -- Portal base URL (Vercel deployment) --
 PORTAL_BASE = "https://keep-the-flow.vercel.app"
 
-# ── Lesson ID → URL path mapping ──
+# -- Lesson ID -> URL path mapping --
 LESSON_PATHS = {
     "idgham_yw_lesson": "lessons/idgham-yw-5-12",
     "qrasm_iqlab_ikhfa": "lessons/iqlab-ikhfa-shafawi",
@@ -49,9 +49,9 @@ LESSON_PATHS = {
 sb: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 
 
-# ═══════════════════════════════════════════════════════════════════════
+# =======================================================================
 # EMAIL ENGINE (mirrors wa_reminder.py anti-spam headers exactly)
-# ═══════════════════════════════════════════════════════════════════════
+# =======================================================================
 
 def get_admin_notification_html(student_name, student_email, lesson_id, instances, total_count):
     """Generate the HTML email sent to the admin when a student submits new recordings."""
@@ -189,7 +189,7 @@ def get_new_student_html(student_name, student_email):
 def send_email(to_email, to_name, subject, html_content, text_fallback):
     """Send email using the exact same SMTP + anti-spam approach as wa_reminder.py."""
     if not GMAIL_ADDRESS or not GMAIL_APP_PASSWORD:
-        print("   ⚠ Missing GMAIL_ADDRESS or GMAIL_APP_PASSWORD — skipping email")
+        print("   [WARN] Missing GMAIL_ADDRESS or GMAIL_APP_PASSWORD  skipping email")
         return False
 
     msg = MIMEMultipart('alternative')
@@ -203,7 +203,7 @@ def send_email(to_email, to_name, subject, html_content, text_fallback):
     domain = GMAIL_ADDRESS.split('@')[1] if '@' in GMAIL_ADDRESS else 'gmail.com'
     msg['Message-ID'] = email.utils.make_msgid(domain=domain)
 
-    # Plain text first, HTML last (per RFC — HTML must be attached LAST)
+    # Plain text first, HTML last (per RFC  HTML must be attached LAST)
     msg.attach(MIMEText(text_fallback, 'plain', 'utf-8'))
     msg.attach(MIMEText(html_content, 'html', 'utf-8'))
 
@@ -211,16 +211,16 @@ def send_email(to_email, to_name, subject, html_content, text_fallback):
         with smtplib.SMTP_SSL('smtp.gmail.com', 465) as server:
             server.login(GMAIL_ADDRESS, GMAIL_APP_PASSWORD)
             server.send_message(msg)
-        print(f"   ✓ Sent email to {to_email} ({subject})")
+        print(f"   [OK] Sent email to {to_email} ({subject})")
         return True
     except Exception as e:
-        print(f"   ✗ Failed to send to {to_email}: {e}")
+        print(f"   [FAIL] Failed to send to {to_email}: {e}")
         return False
 
 
-# ═══════════════════════════════════════════════════════════════════════
+# =======================================================================
 # CORE LOGIC
-# ═══════════════════════════════════════════════════════════════════════
+# =======================================================================
 
 def get_last_check_timestamp():
     """Read the last-check timestamp from Supabase state tracking."""
@@ -251,7 +251,7 @@ def set_last_check_timestamp(ts_str):
             "audio_url": ts_str
         }).execute()
     except Exception as e:
-        print(f"   ⚠ Failed to save check timestamp: {e}")
+        print(f"   [WARN] Failed to save check timestamp: {e}")
 
 
 def get_student_email(student_name):
@@ -267,19 +267,19 @@ def get_student_email(student_name):
 
 
 def run():
-    print("═══ KeepTheFlow Notifier ═══")
+    print("=== KeepTheFlow Notifier ===")
     now_str = datetime.now(timezone.utc).isoformat()
     last_check = get_last_check_timestamp()
 
     print(f"   Last check: {last_check or 'NEVER (first run)'}")
     print(f"   Current:    {now_str}")
 
-    # ── Fetch ALL recordings ──
+    # -- Fetch ALL recordings --
     try:
         res = sb.table("qrasm_recordings").select("*").execute()
         all_rows = res.data or []
     except Exception as e:
-        print(f"   ✗ Failed to fetch recordings: {e}")
+        print(f"   [FAIL] Failed to fetch recordings: {e}")
         return
 
     # Filter out system/tracking rows
@@ -323,9 +323,9 @@ def run():
                 "key": f"{aid}|{sname}|{inst}"
             })
 
-    # ══════════════════════════════════════════════════════════════════
+    # ==================================================================
     # 1. ADMIN NOTIFICATIONS: New student submissions
-    # ══════════════════════════════════════════════════════════════════
+    # ==================================================================
     # Group recordings by (assignment_id, student_name)
     from collections import defaultdict
     student_groups = defaultdict(list)
@@ -346,10 +346,10 @@ def run():
         total_count = len(recs)
         student_email = get_student_email(student)
 
-        print(f"\n   📬 Admin Notify: {student} has {len(new_instances)} new recordings in {aid}")
+        print(f"\n    Admin Notify: {student} has {len(new_instances)} new recordings in {aid}")
 
         # Build admin email
-        subject = f"📝 {student} submitted {len(new_instances)} new recording(s)"
+        subject = f" {student} submitted {len(new_instances)} new recording(s)"
         html = get_admin_notification_html(student, student_email, aid, new_instances, total_count)
         text = f"{student} submitted {len(new_instances)} new recordings in {aid}. Total: {total_count}."
 
@@ -366,9 +366,9 @@ def run():
                 except:
                     pass
 
-    # ══════════════════════════════════════════════════════════════════
+    # ==================================================================
     # 2. STUDENT NOTIFICATIONS: New admin feedback
-    # ══════════════════════════════════════════════════════════════════
+    # ==================================================================
     feedback_groups = defaultdict(list)
     for fb in admin_feedbacks:
         feedback_groups[(fb["assignment_id"], fb["student_name"])].append(fb)
@@ -386,7 +386,7 @@ def run():
 
         student_email = get_student_email(student)
         if not student_email:
-            print(f"   ⚠ No email for {student} — cannot notify about feedback")
+            print(f"   [WARN] No email for {student}  cannot notify about feedback")
             # Still mark as processed to avoid repeat logs
             for inst in new_fb_instances:
                 try:
@@ -400,9 +400,9 @@ def run():
                     pass
             continue
 
-        print(f"\n   📬 Student Notify: {student} ({student_email}) has {len(new_fb_instances)} new feedbacks in {aid}")
+        print(f"\n    Student Notify: {student} ({student_email}) has {len(new_fb_instances)} new feedbacks in {aid}")
 
-        subject = f"🎓 Your homework has been reviewed!"
+        subject = f" Your homework has been reviewed!"
         html = get_student_notification_html(student, aid, new_fb_instances)
         text = f"سلامٌ عليكم {student}, your teacher has reviewed {len(new_fb_instances)} of your recordings. Check your lesson page for feedback."
 
@@ -418,14 +418,14 @@ def run():
                 except:
                     pass
 
-    # ══════════════════════════════════════════════════════════════════
+    # ==================================================================
     # 3. NEW STUDENT REGISTRATION: Notify admin
-    # ══════════════════════════════════════════════════════════════════
+    # ==================================================================
     try:
         students_res = sb.table("qrasm_student_emails").select("*").execute()
         all_students = students_res.data or []
     except Exception as e:
-        print(f"   ⚠ Failed to fetch student emails: {e}")
+        print(f"   [WARN] Failed to fetch student emails: {e}")
         all_students = []
 
     # Find which students we already notified about
@@ -440,9 +440,9 @@ def run():
         if not sname or sname in notified_students:
             continue
 
-        print(f"\n   🆕 New Student: {sname} ({semail})")
+        print(f"\n    New Student: {sname} ({semail})")
 
-        subject = f"🆕 New student joined: {sname}"
+        subject = f" New student joined: {sname}"
         html = get_new_student_html(sname, semail)
         text = f"New student joined KeepTheFlow.\nName: {sname}\nEmail: {semail}"
 
@@ -459,7 +459,7 @@ def run():
 
     # Save checkpoint
     set_last_check_timestamp(now_str)
-    print(f"\n   ✓ Check complete at {now_str}")
+    print(f"\n   [OK] Check complete at {now_str}")
 
 
 if __name__ == "__main__":
