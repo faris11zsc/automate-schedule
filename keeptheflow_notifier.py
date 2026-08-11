@@ -32,8 +32,10 @@ GMAIL_ADDRESS      = os.environ.get("GMAIL_ADDRESS")
 GMAIL_APP_PASSWORD = os.environ.get("GMAIL_APP_PASSWORD")
 ADMIN_EMAIL        = "lightknightf1@gmail.com"
 
-SUPABASE_URL = os.environ.get("SUPABASE_URL", "https://lhebavvnrwqojbhyodwc.supabase.co")
-SUPABASE_KEY = os.environ.get("SUPABASE_KEY", "sb_publishable_JW75ayCf5SbvyT-02GmjNQ_vFpivPTU")
+_DEFAULT_SB_URL = "https://lhebavvnrwqojbhyodwc.supabase.co"
+_DEFAULT_SB_KEY = "sb_publishable_JW75ayCf5SbvyT-02GmjNQ_vFpivPTU"
+SUPABASE_URL = os.environ.get("SUPABASE_URL") or _DEFAULT_SB_URL
+SUPABASE_KEY = os.environ.get("SUPABASE_KEY") or _DEFAULT_SB_KEY
 
 # -- Portal base URL (Vercel deployment) --
 PORTAL_BASE = "https://keep-the-flow.vercel.app"
@@ -46,7 +48,13 @@ LESSON_PATHS = {
     "extended_humming": "lessons/extended-humming",
 }
 
-sb: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
+try:
+    sb: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
+except Exception as e:
+    print(f"[FATAL] Cannot create Supabase client: {e}")
+    print(f"  URL used: {SUPABASE_URL[:30]}...")
+    print(f"  KEY used: {SUPABASE_KEY[:15]}...")
+    sys.exit(1)
 
 
 # =======================================================================
