@@ -29,8 +29,9 @@ jobs:
           GCAL_CREDENTIALS: ${{ secrets.GCAL_CREDENTIALS }}
         run: python wa_reminder.py
 
-      - name: Run KeepTheFlow notifier (every 6th run ≈ 30 min)
+      - name: Run KeepTheFlow notifier (every 6th run = 30 min)
         env:
+          RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
           GMAIL_ADDRESS: ${{ secrets.GMAIL_ADDRESS }}
           GMAIL_APP_PASSWORD: ${{ secrets.GMAIL_APP_PASSWORD }}
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
