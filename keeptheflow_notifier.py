@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """
-KeepTheFlow Email Notifier v3 (Resend API)
-============================================
-Uses Resend.com for guaranteed inbox delivery with fancy HTML emails.
-Uses requests + Supabase REST API directly (no supabase Python package).
+KeepTheFlow Email Notifier v3.1 (Gmail SMTP)
+==============================================
+Uses requests + Supabase REST API directly.
+Gmail SMTP for all emails. Fancy HTML templates with deep links.
 
 Three triggers:
   1. New student registers -> Admin gets notified
@@ -14,12 +14,15 @@ Three triggers:
 import os
 import sys
 import json
+import smtplib
+import email.utils
 import requests
+from email.mime.text import MIMEText
+from email.mime.multipart import MIMEMultipart
 from collections import defaultdict
 from datetime import datetime, timezone
 
 # -- Config --
-RESEND_API_KEY     = os.environ.get("RESEND_API_KEY")
 GMAIL_ADDRESS      = os.environ.get("GMAIL_ADDRESS")
 GMAIL_APP_PASSWORD = os.environ.get("GMAIL_APP_PASSWORD")
 ADMIN_EMAIL        = "lightknightf1@gmail.com"
@@ -41,9 +44,6 @@ LESSON_PATHS = {
     "extended_humming": "lessons/extended-humming",
 }
 
-# Resend "from" address (free tier uses their shared domain)
-RESEND_FROM = "Faris - Keep The Flow <onboarding@resend.dev>"
-
 
 # ======= SUPABASE REST HELPERS =======
 
@@ -59,59 +59,13 @@ def sb_insert(table, data):
     r.raise_for_status()
     return r.json()
 
-def sb_delete(table, params):
-    url = f"{SB_URL}/rest/v1/{table}?{params}"
-    r = requests.delete(url, headers=SB_HEADERS, timeout=15)
-    r.raise_for_status()
 
-
-# ======= EMAIL ENGINE (Resend API with Gmail fallback) =======
+# ======= EMAIL ENGINE (Gmail SMTP) =======
 
 def send_email(to_email, to_name, subject, html_body, text_body):
-    # Try Resend first (guaranteed inbox delivery)
-    if RESEND_API_KEY:
-        return _send_resend(to_email, to_name, subject, html_body, text_body)
-    # Fallback to Gmail SMTP
-    if GMAIL_ADDRESS and GMAIL_APP_PASSWORD:
-        return _send_gmail(to_email, to_name, subject, html_body, text_body)
-    print(f"   [SKIP] No email credentials - cannot send to {to_email}")
-    return False
-
-def _send_resend(to_email, to_name, subject, html_body, text_body):
-    payload = {
-        "from": RESEND_FROM,
-        "to": [to_email],
-        "subject": subject,
-        "html": html_body,
-        "text": text_body,
-        "reply_to": ADMIN_EMAIL,
-    }
-    try:
-        r = requests.post(
-            "https://api.resend.com/emails",
-            headers={
-                "Authorization": f"Bearer {RESEND_API_KEY}",
-                "Content-Type": "application/json",
-            },
-            json=payload,
-            timeout=15,
-        )
-        if r.status_code in (200, 201):
-            data = r.json()
-            print(f"   [OK] Resend email sent to {to_email} (id: {data.get('id','?')})")
-            return True
-        else:
-            print(f"   [FAIL] Resend {r.status_code}: {r.text[:200]}")
-            return False
-    except Exception as e:
-        print(f"   [FAIL] Resend error: {e}")
+    if not GMAIL_ADDRESS or not GMAIL_APP_PASSWORD:
+        print(f"   [SKIP] No Gmail credentials - cannot send to {to_email}")
         return False
-
-def _send_gmail(to_email, to_name, subject, html_body, text_body):
-    import smtplib
-    import email.utils
-    from email.mime.text import MIMEText
-    from email.mime.multipart import MIMEMultipart
 
     msg = MIMEMultipart('alternative')
     msg['Subject'] = subject
@@ -121,6 +75,7 @@ def _send_gmail(to_email, to_name, subject, html_body, text_body):
     msg['Date'] = email.utils.formatdate(localtime=False)
     domain = GMAIL_ADDRESS.split('@')[1] if '@' in GMAIL_ADDRESS else 'gmail.com'
     msg['Message-ID'] = email.utils.make_msgid(domain=domain)
+
     msg.attach(MIMEText(text_body, 'plain', 'utf-8'))
     msg.attach(MIMEText(html_body, 'html', 'utf-8'))
 
@@ -128,10 +83,10 @@ def _send_gmail(to_email, to_name, subject, html_body, text_body):
         with smtplib.SMTP_SSL('smtp.gmail.com', 465) as server:
             server.login(GMAIL_ADDRESS, GMAIL_APP_PASSWORD)
             server.send_message(msg)
-        print(f"   [OK] Gmail sent to {to_email}")
+        print(f"   [OK] Email sent to {to_email}")
         return True
     except Exception as e:
-        print(f"   [FAIL] Gmail to {to_email}: {e}")
+        print(f"   [FAIL] Email to {to_email}: {e}")
         return False
 
 
@@ -245,11 +200,9 @@ def mark_sent(tag, key):
 # ======= MAIN LOGIC =======
 
 def run():
-    print("=== KeepTheFlow Notifier v3 (Resend) ===")
-    print(f"   Resend API: {'configured' if RESEND_API_KEY else 'NOT SET (will use Gmail fallback)'}")
+    print("=== KeepTheFlow Notifier v3.1 (Gmail SMTP) ===")
     print(f"   Gmail: {'configured' if GMAIL_ADDRESS else 'NOT SET'}")
 
-    # Test Supabase connection
     try:
         test = sb_get("qrasm_recordings", "select=id&limit=1")
         print(f"   Supabase: OK")
@@ -257,21 +210,17 @@ def run():
         print(f"   [FATAL] Supabase connection failed: {e}")
         sys.exit(1)
 
-    # Get all recordings
     all_rows = sb_get("qrasm_recordings", "select=*")
     print(f"   Total rows: {len(all_rows)}")
 
-    # Get all student emails
     try:
         all_students = sb_get("qrasm_student_emails", "select=*")
     except Exception:
         all_students = []
     print(f"   Registered students: {len(all_students)}")
 
-    # Build email lookup
     email_lookup = {s.get("student_name", ""): s.get("email", "") for s in all_students}
 
-    # Separate rows
     real_recordings = []
     admin_feedbacks = []
     for row in all_rows:
@@ -283,21 +232,20 @@ def run():
         elif not sname.startswith("STUDENT_EMAIL_"):
             real_recordings.append(row)
 
-    # ---- TRIGGER 1: New student registrations ----
+    # ---- TRIGGER 1: New students ----
     sent_students = get_sent_keys("EMAIL_SENT_NEW_STUDENT")
     for s in all_students:
         sname = s.get("student_name", "")
         semail = s.get("email", "")
         if not sname or sname in sent_students:
             continue
-
         print(f"\n   [NEW STUDENT] {sname} ({semail})")
         html = admin_new_student_email(sname, semail)
-        text = f"Assalamu alaikum,\n\nA new student has registered on Keep The Flow.\n\nName: {sname}\nEmail: {semail}\n\nView the portal at {PORTAL}\n\nBest,\nKeep The Flow"
+        text = f"New student registered: {sname} ({semail}). View portal at {PORTAL}"
         if send_email(ADMIN_EMAIL, "Admin", f"{sname} joined Keep The Flow", html, text):
             mark_sent("EMAIL_SENT_NEW_STUDENT", sname)
 
-    # ---- TRIGGER 2: New recordings -> Admin ----
+    # ---- TRIGGER 2: New recordings ----
     sent_subs = get_sent_keys("EMAIL_SENT_SUBMISSIONS")
     groups = defaultdict(list)
     for rec in real_recordings:
@@ -309,14 +257,12 @@ def run():
             key = f"{aid}|{student}|{r.get('instance_number',0)}"
             if key not in sent_subs:
                 new_instances.append(r.get("instance_number", 0))
-
         if not new_instances:
             continue
-
         semail = email_lookup.get(student, "")
         print(f"\n   [RECORDINGS] {student} has {len(new_instances)} new in {aid}")
         html = admin_new_recordings_email(student, semail, aid, new_instances, len(recs))
-        text = f"Assalamu alaikum,\n\n{student} has submitted {len(new_instances)} new recording(s) for lesson {aid}.\n\nTotal: {len(recs)}.\n\nReview at {PORTAL}\n\nBest,\nKeep The Flow"
+        text = f"{student} submitted {len(new_instances)} recording(s) for {aid}. Review at {PORTAL}"
         if send_email(ADMIN_EMAIL, "Admin", f"{student} - {len(new_instances)} new recording(s)", html, text):
             for inst in new_instances:
                 mark_sent("EMAIL_SENT_SUBMISSIONS", f"{aid}|{student}|{inst}")
@@ -334,7 +280,6 @@ def run():
             key = f"{aid}|{student}|{fb.get('instance_number',0)}"
             if key not in sent_fb:
                 new_fb.append(fb.get("instance_number", 0))
-
         if not new_fb:
             continue
 
@@ -347,7 +292,7 @@ def run():
 
         print(f"\n   [FEEDBACK] {student} has {len(new_fb)} new feedbacks in {aid}")
         html = student_feedback_email(student, aid, new_fb)
-        text = f"Assalamu alaikum {student},\n\nYour teacher has reviewed {len(new_fb)} of your recordings.\n\nVisit your lesson page to see the feedback:\n{PORTAL}/{LESSON_PATHS.get(aid, 'lessons/' + aid)}/\n\nKeep up the great work!\n\nBest,\nFaris"
+        text = f"Assalamu alaikum {student},\n\nYour teacher has reviewed {len(new_fb)} of your recordings.\n\nVisit: {PORTAL}/{LESSON_PATHS.get(aid, 'lessons/' + aid)}/\n\nBest,\nFaris"
         if send_email(semail, student, f"{student}, your recordings have been reviewed", html, text):
             for inst in new_fb:
                 mark_sent("EMAIL_SENT_FEEDBACK", f"{aid}|{student}|{inst}")
