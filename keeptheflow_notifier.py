@@ -76,14 +76,28 @@ def send_email(to_email, to_name, subject, html_body, text_body):
 
     msg = MIMEMultipart('alternative')
     msg['Subject'] = subject
-    msg['From'] = f"Keep The Flow <{GMAIL_ADDRESS}>"
+    msg['From'] = f"Faris - Keep The Flow <{GMAIL_ADDRESS}>"
     msg['To'] = f"{to_name} <{to_email}>" if to_name else to_email
     msg['Reply-To'] = GMAIL_ADDRESS
     msg['Date'] = email.utils.formatdate(localtime=False)
 
+    # Anti-spam: domain-aligned Message-ID (prevents Yahoo/iCloud flagging)
     domain = GMAIL_ADDRESS.split('@')[1] if '@' in GMAIL_ADDRESS else 'gmail.com'
     msg['Message-ID'] = email.utils.make_msgid(domain=domain)
 
+    # Anti-spam: List-Unsubscribe (required by Gmail/Yahoo for bulk senders)
+    msg['List-Unsubscribe'] = f"<mailto:{GMAIL_ADDRESS}?subject=unsubscribe>"
+    msg['List-Unsubscribe-Post'] = "List-Unsubscribe=One-Click"
+
+    # Anti-spam: Identify as legitimate automated mailer
+    msg['X-Mailer'] = "KeepTheFlow/2.0"
+    msg['MIME-Version'] = "1.0"
+
+    # Anti-spam: Mark as automated/bulk (tells mail servers this is expected automated mail)
+    msg['Precedence'] = "bulk"
+    msg['X-Auto-Response-Suppress'] = "OOF, AutoReply"
+
+    # Plain text FIRST, HTML LAST (per RFC — improves deliverability)
     msg.attach(MIMEText(text_body, 'plain', 'utf-8'))
     msg.attach(MIMEText(html_body, 'html', 'utf-8'))
 
@@ -255,8 +269,8 @@ def run():
 
         print(f"\n   [NEW STUDENT] {sname} ({semail})")
         html = admin_new_student_email(sname, semail)
-        text = f"New student joined KeepTheFlow: {sname} ({semail})"
-        if send_email(ADMIN_EMAIL, "KeepTheFlow Admin", f"New student joined: {sname}", html, text):
+        text = f"Assalamu alaikum,\n\nA new student has registered on Keep The Flow.\n\nName: {sname}\nEmail: {semail}\n\nYou can view the portal at {PORTAL}\n\nBest regards,\nKeep The Flow"
+        if send_email(ADMIN_EMAIL, "KeepTheFlow Admin", f"{sname} joined Keep The Flow", html, text):
             mark_sent("EMAIL_SENT_NEW_STUDENT", sname)
 
     # ---- TRIGGER 2: New recordings -> Admin ----
@@ -279,8 +293,8 @@ def run():
         semail = email_lookup.get(student, "")
         print(f"\n   [RECORDINGS] {student} has {len(new_instances)} new in {aid}")
         html = admin_new_recordings_email(student, semail, aid, new_instances, len(recs))
-        text = f"{student} submitted {len(new_instances)} new recordings in {aid}."
-        if send_email(ADMIN_EMAIL, "KeepTheFlow Admin", f"{student} submitted {len(new_instances)} recording(s)", html, text):
+        text = f"Assalamu alaikum,\n\n{student} has submitted {len(new_instances)} new recording(s) for lesson {aid}.\n\nTotal submissions: {len(recs)}.\n\nReview them at {PORTAL}\n\nBest regards,\nKeep The Flow"
+        if send_email(ADMIN_EMAIL, "KeepTheFlow Admin", f"{student} - {len(new_instances)} new recording(s)", html, text):
             for inst in new_instances:
                 mark_sent("EMAIL_SENT_SUBMISSIONS", f"{aid}|{student}|{inst}")
 
@@ -310,8 +324,8 @@ def run():
 
         print(f"\n   [FEEDBACK] {student} has {len(new_fb)} new feedbacks in {aid}")
         html = student_feedback_email(student, aid, new_fb)
-        text = f"Your teacher reviewed {len(new_fb)} of your recordings. Check your lesson page."
-        if send_email(semail, student, "Your homework has been reviewed!", html, text):
+        text = f"Assalamu alaikum {student},\n\nGreat news! Your teacher has reviewed {len(new_fb)} of your recordings.\n\nVisit your lesson page to see the feedback:\n{PORTAL}/{LESSON_PATHS.get(aid, 'lessons/' + aid)}/\n\nKeep up the great work!\n\nBest regards,\nFaris"
+        if send_email(semail, student, f"{student}, your recordings have been reviewed", html, text):
             for inst in new_fb:
                 mark_sent("EMAIL_SENT_FEEDBACK", f"{aid}|{student}|{inst}")
 
