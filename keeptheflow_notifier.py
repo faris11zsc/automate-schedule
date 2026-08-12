@@ -76,28 +76,16 @@ def send_email(to_email, to_name, subject, html_body, text_body):
 
     msg = MIMEMultipart('alternative')
     msg['Subject'] = subject
-    msg['From'] = f"Faris - Keep The Flow <{GMAIL_ADDRESS}>"
+    msg['From'] = f"Faris Oransa <{GMAIL_ADDRESS}>"
     msg['To'] = f"{to_name} <{to_email}>" if to_name else to_email
     msg['Reply-To'] = GMAIL_ADDRESS
     msg['Date'] = email.utils.formatdate(localtime=False)
 
-    # Anti-spam: domain-aligned Message-ID (prevents Yahoo/iCloud flagging)
+    # Domain-aligned Message-ID (prevents Yahoo/iCloud hostname flagging)
     domain = GMAIL_ADDRESS.split('@')[1] if '@' in GMAIL_ADDRESS else 'gmail.com'
     msg['Message-ID'] = email.utils.make_msgid(domain=domain)
 
-    # Anti-spam: List-Unsubscribe (required by Gmail/Yahoo for bulk senders)
-    msg['List-Unsubscribe'] = f"<mailto:{GMAIL_ADDRESS}?subject=unsubscribe>"
-    msg['List-Unsubscribe-Post'] = "List-Unsubscribe=One-Click"
-
-    # Anti-spam: Identify as legitimate automated mailer
-    msg['X-Mailer'] = "KeepTheFlow/2.0"
-    msg['MIME-Version'] = "1.0"
-
-    # Anti-spam: Mark as automated/bulk (tells mail servers this is expected automated mail)
-    msg['Precedence'] = "bulk"
-    msg['X-Auto-Response-Suppress'] = "OOF, AutoReply"
-
-    # Plain text FIRST, HTML LAST (per RFC — improves deliverability)
+    # Plain text FIRST, HTML LAST (per RFC)
     msg.attach(MIMEText(text_body, 'plain', 'utf-8'))
     msg.attach(MIMEText(html_body, 'html', 'utf-8'))
 
@@ -181,23 +169,32 @@ def admin_new_recordings_email(student_name, student_email, lesson_id, instances
 
 def student_feedback_email(student_name, lesson_id, instances):
     path = LESSON_PATHS.get(lesson_id, f"lessons/{lesson_id}")
-    rows = ""
+    lesson_link = f"{PORTAL}/{path}/"
+
+    # Build a simple list of instance links
+    links_html = ""
     for inst in instances[:10]:
         link = f"{PORTAL}/{path}/?scrollTo={inst}"
-        rows += f'<tr><td style="padding:8px 12px;font-size:14px;color:#2D2D2D;border-bottom:1px solid #e8e0c8;">Instance #{inst}</td><td style="padding:8px 12px;text-align:right;border-bottom:1px solid #e8e0c8;"><a href="{link}" style="color:#c5a44e;font-weight:600;text-decoration:none;">Check Feedback</a></td></tr>'
+        links_html += f'<li><a href="{link}" style="color:#1a73e8;">Instance #{inst}</a></li>\n'
 
-    inner = f"""
-    <h2 style="margin:0 0 16px;font-size:20px;color:#1a2744;">Your Homework Has Been Reviewed!</h2>
-    <p style="font-size:15px;color:#2D2D2D;">Your teacher has reviewed <strong style="color:#c5a44e;">{len(instances)}</strong> of your recordings. Click below to see your feedback:</p>
-    <table width="100%" style="margin:16px 0;border:1px solid #e8e0c8;border-radius:8px;overflow:hidden;">
-      <tr style="background:#f7f5ef;"><th style="padding:10px 12px;text-align:left;font-size:13px;color:#8a95a8;">Instance</th><th style="padding:10px 12px;text-align:right;font-size:13px;color:#8a95a8;">Action</th></tr>
-      {rows}
-    </table>
-    <a href="{PORTAL}/{path}/" style="display:inline-block;background:linear-gradient(135deg,#1a2744,#2a3a5e);color:#c5a44e;text-decoration:none;padding:14px 28px;border-radius:8px;font-weight:700;font-size:15px;">Open Your Lesson</a>
-    <hr style="border:none;border-top:1px solid #e8e0c8;margin:24px 0;"/>
-    <p style="font-size:15px;color:#2D2D2D;">Keep up the great work!<br/>Best,<br/>Faris</p>
-    """
-    return email_wrap(inner)
+    # Simple personal-looking email (NOT a newsletter template)
+    html = f"""<!DOCTYPE html><html><head><meta charset="UTF-8"/></head>
+<body style="margin:0;padding:20px;font-family:Arial,sans-serif;font-size:15px;color:#222;">
+<p>Assalamu alaikum {student_name},</p>
+
+<p>I have reviewed <b>{len(instances)}</b> of your recording{"s" if len(instances) > 1 else ""}. You can check the feedback here:</p>
+
+<ul style="line-height:1.8;">
+{links_html}</ul>
+
+<p>Or open your lesson page directly:<br/>
+<a href="{lesson_link}" style="color:#1a73e8;">{lesson_link}</a></p>
+
+<p>Keep up the great work!</p>
+
+<p>Best,<br/>Faris</p>
+</body></html>"""
+    return html
 
 
 # ======= TRACKING (which notifications already sent) =======
