@@ -69,7 +69,7 @@ def send_email(to_email, to_name, subject, html_body, text_body):
 
     msg = MIMEMultipart('alternative')
     msg['Subject'] = subject
-    msg['From'] = f"Faris Oransa <{GMAIL_ADDRESS}>"
+    msg['From'] = f"Keep The Flow <{GMAIL_ADDRESS}>"
     msg['To'] = f"{to_name} <{to_email}>" if to_name else to_email
     msg['Reply-To'] = GMAIL_ADDRESS
     msg['Date'] = email.utils.formatdate(localtime=False)
@@ -174,7 +174,7 @@ def student_feedback_email(student_name, lesson_id, instances):
     </table>
     <a href="{PORTAL}/{path}/" style="display:inline-block;background:linear-gradient(135deg,#1a2744,#2a3a5e);color:#c5a44e;text-decoration:none;padding:14px 28px;border-radius:8px;font-weight:700;font-size:15px;">Open Your Lesson</a>
     <hr style="border:none;border-top:1px solid #e8e0c8;margin:24px 0;"/>
-    <p style="font-size:15px;color:#2D2D2D;line-height:1.6;">Keep up the great work!<br/>Best,<br/>Faris</p>
+    <p style="font-size:15px;color:#2D2D2D;line-height:1.6;">Keep up the great work!<br/>Best,<br/>Your Teacher</p>
     """
     return email_wrap(inner)
 
@@ -292,7 +292,7 @@ def run():
 
         print(f"\n   [FEEDBACK] {student} has {len(new_fb)} new feedbacks in {aid}")
         html = student_feedback_email(student, aid, new_fb)
-        text = f"Assalamu alaikum {student},\n\nYour teacher has reviewed {len(new_fb)} of your recordings.\n\nVisit: {PORTAL}/{LESSON_PATHS.get(aid, 'lessons/' + aid)}/\n\nBest,\nFaris"
+        text = f"Assalamu alaikum {student},\n\nYour teacher has reviewed {len(new_fb)} of your recordings.\n\nVisit: {PORTAL}/{LESSON_PATHS.get(aid, 'lessons/' + aid)}/\n\nBest,\nYour Teacher"
         if send_email(semail, student, f"{student}, your recordings have been reviewed", html, text):
             for inst in new_fb:
                 mark_sent("EMAIL_SENT_FEEDBACK", f"{aid}|{student}|{inst}")
