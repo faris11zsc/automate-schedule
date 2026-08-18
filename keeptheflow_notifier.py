@@ -200,8 +200,9 @@ def mark_sent(tag, key):
 # ======= MAIN LOGIC =======
 
 def run():
-    print("=== KeepTheFlow Notifier v3.1 (Gmail SMTP) ===")
-    print(f"   Gmail: {'configured' if GMAIL_ADDRESS else 'NOT SET'}")
+    print("=== KeepTheFlow Notifier v3.2 ===")
+    print(f"   Gmail address: {GMAIL_ADDRESS or 'NOT SET'}")
+    print(f"   Gmail password: {'SET (' + str(len(GMAIL_APP_PASSWORD)) + ' chars)' if GMAIL_APP_PASSWORD else 'NOT SET'}")
 
     try:
         test = sb_get("qrasm_recordings", "select=id&limit=1")

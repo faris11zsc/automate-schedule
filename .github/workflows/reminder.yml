@@ -29,20 +29,11 @@ jobs:
           GCAL_CREDENTIALS: ${{ secrets.GCAL_CREDENTIALS }}
         run: python wa_reminder.py
 
-      - name: Run KeepTheFlow notifier (every 6th run = 30 min)
+      - name: Run KeepTheFlow notifier
         env:
-          RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
           GMAIL_ADDRESS: ${{ secrets.GMAIL_ADDRESS }}
           GMAIL_APP_PASSWORD: ${{ secrets.GMAIL_APP_PASSWORD }}
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
           PYTHONIOENCODING: utf-8
-        run: |
-          MINUTE=$(date +%M)
-          # Run at :00 and :30 marks (every 30 min)
-          if [ "$MINUTE" -lt 5 ] || [ "$MINUTE" -ge 30 -a "$MINUTE" -lt 35 ]; then
-            echo "Running KeepTheFlow notifier..."
-            python keeptheflow_notifier.py
-          else
-            echo "Skipping KeepTheFlow notifier (next run at :00 or :30)"
-          fi
+        run: python keeptheflow_notifier.py
