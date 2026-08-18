@@ -27,8 +27,9 @@ except ImportError:
     service_account = None
 
 NOTION_TOKEN   = os.environ.get("NOTION_TOKEN")
-GMAIL_ADDRESS  = os.environ.get("GMAIL_ADDRESS")
-GMAIL_APP_PASSWORD = os.environ.get("GMAIL_APP_PASSWORD")
+GMAIL_ADDRESS = os.environ.get("GMAIL_ADDRESS", "").strip()
+_gap2 = os.environ.get("GMAIL_APP_PASSWORD", "")
+GMAIL_APP_PASSWORD = _gap2.replace(" ", "") if _gap2 else ""
 DATABASE_ID    = "5cb27942-1b67-4dc6-9de4-e9e72dafbbea"
 WINDOW         = (5, 60)   # send when session is this many minutes away
 DEDUP_HOURS    = 2         # safety net: never re-send within this window

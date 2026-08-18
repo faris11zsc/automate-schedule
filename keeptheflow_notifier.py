@@ -23,8 +23,9 @@ from collections import defaultdict
 from datetime import datetime, timezone
 
 # -- Config --
-GMAIL_ADDRESS      = os.environ.get("GMAIL_ADDRESS")
-GMAIL_APP_PASSWORD = os.environ.get("GMAIL_APP_PASSWORD")
+GMAIL_ADDRESS      = os.environ.get("GMAIL_ADDRESS", "").strip()
+_gap = os.environ.get("GMAIL_APP_PASSWORD", "")
+GMAIL_APP_PASSWORD = _gap.replace(" ", "") if _gap else ""
 ADMIN_EMAIL        = "lightknightf1@gmail.com"
 
 SB_URL = os.environ.get("SUPABASE_URL") or "https://lhebavvnrwqojbhyodwc.supabase.co"
@@ -85,6 +86,9 @@ def send_email(to_email, to_name, subject, html_body, text_body):
             server.send_message(msg)
         print(f"   [OK] Email sent to {to_email}")
         return True
+    except smtplib.SMTPAuthenticationError as e:
+        print(f"   [FATAL] Gmail Authentication Failed! Check your GMAIL_APP_PASSWORD. Error: {e}")
+        sys.exit(1)
     except Exception as e:
         print(f"   [FAIL] Email to {to_email}: {e}")
         return False
