@@ -22,10 +22,10 @@ from email.mime.multipart import MIMEMultipart
 from collections import defaultdict
 from datetime import datetime, timezone
 
+import re
 # -- Config --
-GMAIL_ADDRESS      = os.environ.get("GMAIL_ADDRESS", "").strip()
-_gap = os.environ.get("GMAIL_APP_PASSWORD", "")
-GMAIL_APP_PASSWORD = _gap.replace(" ", "") if _gap else ""
+GMAIL_ADDRESS      = re.sub(r'\s+', '', os.environ.get("GMAIL_ADDRESS", ""))
+GMAIL_APP_PASSWORD = re.sub(r'\s+', '', os.environ.get("GMAIL_APP_PASSWORD", ""))
 ADMIN_EMAIL        = "lightknightf1@gmail.com"
 
 SB_URL = os.environ.get("SUPABASE_URL") or "https://lhebavvnrwqojbhyodwc.supabase.co"
