@@ -87,7 +87,7 @@ def send_email(to_email, to_name, subject, html_body, text_body):
         print(f"   [OK] Email sent to {to_email}")
         return True
     except smtplib.SMTPAuthenticationError as e:
-        msg = f"Gmail Authentication Failed! Check GMAIL_APP_PASSWORD. Error: {e}"
+        msg = f"Gmail Authentication Failed! Address='{GMAIL_ADDRESS}' (len={len(GMAIL_ADDRESS)}), Passwd len={len(GMAIL_APP_PASSWORD)}. Error: {e}"
         print(f"   [FATAL] {msg}")
         try: sb_insert("qrasm_recordings", {"student_name": "SYSTEM_ERROR", "assignment_id": "notifier", "instance_number": 0, "audio_url": msg})
         except: pass
