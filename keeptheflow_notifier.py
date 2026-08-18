@@ -204,6 +204,10 @@ def run():
     print(f"   Gmail address: {GMAIL_ADDRESS or 'NOT SET'}")
     print(f"   Gmail password: {'SET (' + str(len(GMAIL_APP_PASSWORD)) + ' chars)' if GMAIL_APP_PASSWORD else 'NOT SET'}")
 
+    if not GMAIL_ADDRESS or not GMAIL_APP_PASSWORD:
+        print("   [FATAL] Gmail credentials missing! Set GMAIL_ADDRESS and GMAIL_APP_PASSWORD.")
+        sys.exit(1)
+
     try:
         test = sb_get("qrasm_recordings", "select=id&limit=1")
         print(f"   Supabase: OK")
