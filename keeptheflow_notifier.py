@@ -87,7 +87,10 @@ def send_email(to_email, to_name, subject, html_body, text_body):
         print(f"   [OK] Email sent to {to_email}")
         return True
     except smtplib.SMTPAuthenticationError as e:
-        print(f"   [FATAL] Gmail Authentication Failed! Check your GMAIL_APP_PASSWORD. Error: {e}")
+        msg = f"Gmail Authentication Failed! Check GMAIL_APP_PASSWORD. Error: {e}"
+        print(f"   [FATAL] {msg}")
+        try: sb_insert("qrasm_recordings", {"student_name": "SYSTEM_ERROR", "assignment_id": "notifier", "instance_number": 0, "audio_url": msg})
+        except: pass
         sys.exit(1)
     except Exception as e:
         print(f"   [FAIL] Email to {to_email}: {e}")
@@ -209,7 +212,10 @@ def run():
     print(f"   Gmail password: {'SET (' + str(len(GMAIL_APP_PASSWORD)) + ' chars)' if GMAIL_APP_PASSWORD else 'NOT SET'}")
 
     if not GMAIL_ADDRESS or not GMAIL_APP_PASSWORD:
-        print("   [FATAL] Gmail credentials missing! Set GMAIL_ADDRESS and GMAIL_APP_PASSWORD.")
+        msg = "Gmail credentials missing! Set GMAIL_ADDRESS and GMAIL_APP_PASSWORD."
+        print(f"   [FATAL] {msg}")
+        try: sb_insert("qrasm_recordings", {"student_name": "SYSTEM_ERROR", "assignment_id": "notifier", "instance_number": 0, "audio_url": msg})
+        except: pass
         sys.exit(1)
 
     try:
@@ -313,7 +319,10 @@ if __name__ == "__main__":
     try:
         run()
     except Exception as e:
-        print(f"\n   [FATAL] {e}")
         import traceback
         traceback.print_exc()
+        msg = f"Fatal script error: {e}"
+        print(f"\n   [FATAL] {msg}")
+        try: sb_insert("qrasm_recordings", {"student_name": "SYSTEM_ERROR", "assignment_id": "notifier", "instance_number": 0, "audio_url": msg})
+        except: pass
         sys.exit(1)
