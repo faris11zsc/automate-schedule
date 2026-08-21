@@ -122,6 +122,7 @@ def email_wrap(inner):
 
 
 def admin_new_student_email(name, student_email):
+    email_display = f'<a href="mailto:{student_email}" style="color:#1a73e8;text-decoration:none;">{student_email}</a>' if student_email else '<span style="color:#8a95a8;font-style:italic;">No email provided</span>'
     inner = f"""
     <h2 style="margin:0 0 16px;font-size:20px;color:#1a2744;">New Student Joined</h2>
     <p style="font-size:15px;color:#2D2D2D;line-height:1.6;">A new student registered on Keep The Flow:</p>
@@ -129,8 +130,7 @@ def admin_new_student_email(name, student_email):
       <tr style="background:#f7f5ef;"><td style="padding:12px 16px;font-size:13px;color:#8a95a8;width:80px;">Name</td>
         <td style="padding:12px 16px;font-size:15px;color:#1a2744;font-weight:700;">{name}</td></tr>
       <tr><td style="padding:12px 16px;font-size:13px;color:#8a95a8;border-top:1px solid #e8e0c8;">Email</td>
-        <td style="padding:12px 16px;font-size:15px;border-top:1px solid #e8e0c8;">
-          <a href="mailto:{student_email}" style="color:#1a73e8;text-decoration:none;">{student_email}</a></td></tr>
+        <td style="padding:12px 16px;font-size:15px;border-top:1px solid #e8e0c8;">{email_display}</td></tr>
     </table>
     <a href="{PORTAL}" style="display:inline-block;background:linear-gradient(135deg,#1a2744,#2a3a5e);color:#c5a44e;text-decoration:none;padding:14px 28px;border-radius:8px;font-weight:700;font-size:15px;">Open Portal</a>
     """
@@ -282,7 +282,7 @@ def run():
             continue
         print(f"\n   [NEW STUDENT] {sname} ({semail})")
         html = admin_new_student_email(sname, semail)
-        text = f"New student registered: {sname} ({semail}). View portal at {PORTAL}"
+        text = f"New student registered: {sname} ({semail if semail else 'No email'}). View portal at {PORTAL}"
         if send_email(ADMIN_EMAIL, "Admin", f"{sname} joined Keep The Flow", html, text):
             mark_sent("EMAIL_SENT_NEW_STUDENT", sname)
 
