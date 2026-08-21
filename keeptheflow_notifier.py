@@ -167,9 +167,35 @@ def admin_new_recordings_email(student_name, student_email, lesson_id, instances
 def student_feedback_email(student_name, lesson_id, instances):
     path = LESSON_PATHS.get(lesson_id, f"lessons/{lesson_id}")
     rows = ""
-    for inst in instances[:10]:
+    for fb in instances[:10]:
+        inst = fb["inst"]
         link = f"{PORTAL}/{path}/?scrollTo={inst}"
-        rows += f'<tr><td style="padding:8px 12px;font-size:14px;color:#2D2D2D;border-bottom:1px solid #e8e0c8;">Instance #{inst}</td><td style="padding:8px 12px;text-align:right;border-bottom:1px solid #e8e0c8;"><a href="{link}" style="color:#1a73e8;font-weight:600;text-decoration:none;">Check Feedback</a></td></tr>'
+        
+        bg = "linear-gradient(135deg, #f3f4f6, #e5e7eb)"
+        text_col = "#374151"
+        if fb["rate"] == "perfect":
+            bg = "linear-gradient(135deg, #c5a44e, #d4b86a)" # Pearl/Gold
+            text_col = "#1a2744"
+        elif fb["rate"] == "good":
+            bg = "linear-gradient(135deg, #10B981, #059669)" # Green
+            text_col = "#ffffff"
+        elif fb["rate"] == "retry":
+            bg = "linear-gradient(135deg, #E11D48, #BE123C)" # Red
+            text_col = "#ffffff"
+
+        if fb["has_audio"]:
+            label = "Listen 👂💬"
+        elif fb["rate"] == "perfect":
+            label = "Perfect ✨"
+        elif fb["rate"] == "good":
+            label = "Good Job 👍"
+        elif fb["rate"] == "retry":
+            label = "Try Again 🔄"
+        else:
+            label = "Check Feedback 📝"
+
+        btn = f'<a href="{link}" style="display:inline-block; padding:8px 16px; border-radius:99px; text-decoration:none; font-weight:700; font-size:13px; background:{bg}; color:{text_col}; box-shadow:0 2px 4px rgba(0,0,0,0.1);">{label}</a>'
+        rows += f'<tr><td style="padding:12px;font-size:15px;color:#2D2D2D;border-bottom:1px solid #e8e0c8;">Instance #{inst}</td><td style="padding:12px;text-align:right;border-bottom:1px solid #e8e0c8;">{btn}</td></tr>'
 
     inner = f"""
     <h2 style="margin:0 0 16px;font-size:20px;color:#1a2744;">Your Recordings Have Been Reviewed</h2>
@@ -289,28 +315,34 @@ def run():
         actual_student = fb.get("student_name", "").replace("ADMIN_FEEDBACK_", "")
         fb_groups[(fb.get("assignment_id",""), actual_student)].append(fb)
 
+    orig_recs = {(r.get("assignment_id"), r.get("student_name"), r.get("instance_number")): r for r in real_recordings}
+
     for (aid, student), fbs in fb_groups.items():
         new_fb = []
         for fb in fbs:
-            key = f"{aid}|{student}|{fb.get('instance_number',0)}"
+            inst = fb.get('instance_number', 0)
+            key = f"{aid}|{student}|{inst}"
             if key not in sent_fb:
-                new_fb.append(fb.get("instance_number", 0))
+                orig = orig_recs.get((aid, student, inst), {})
+                rate = orig.get("grade", "")
+                has_audio = bool(fb.get("audio_url") and fb.get("audio_url").startswith("http"))
+                new_fb.append({"inst": inst, "rate": rate, "has_audio": has_audio})
         if not new_fb:
             continue
 
         semail = email_lookup.get(student, "")
         if not semail:
             print(f"   [SKIP] No email for {student}")
-            for inst in new_fb:
-                mark_sent("EMAIL_SENT_FEEDBACK", f"{aid}|{student}|{inst}")
+            for fb in new_fb:
+                mark_sent("EMAIL_SENT_FEEDBACK", f"{aid}|{student}|{fb['inst']}")
             continue
 
         print(f"\n   [FEEDBACK] {student} has {len(new_fb)} new feedbacks in {aid}")
         html = student_feedback_email(student, aid, new_fb)
         text = f"Assalamu alaikum {student},\n\nYour teacher has reviewed {len(new_fb)} of your recordings.\n\nVisit: {PORTAL}/{LESSON_PATHS.get(aid, 'lessons/' + aid)}/\n\nBest,\nYour Teacher"
         if send_email(semail, student, f"{student}, your recordings have been reviewed", html, text):
-            for inst in new_fb:
-                mark_sent("EMAIL_SENT_FEEDBACK", f"{aid}|{student}|{inst}")
+            for fb in new_fb:
+                mark_sent("EMAIL_SENT_FEEDBACK", f"{aid}|{student}|{fb['inst']}")
 
     print("\n   === Done ===")
 
