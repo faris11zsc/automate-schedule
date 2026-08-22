@@ -72,7 +72,8 @@ def send_email(to_email, to_name, subject, html_body, text_body):
     msg = MIMEMultipart('alternative')
     msg['Subject'] = subject
     msg['From'] = f"Keep The Flow <{GMAIL_ADDRESS}>"
-    msg['To'] = f"{to_name} <{to_email}>" if to_name else to_email
+    from email.header import Header
+    msg['To'] = email.utils.formataddr((str(Header(to_name, 'utf-8')), to_email)) if to_name else to_email
     msg['Reply-To'] = GMAIL_ADDRESS
     msg['Date'] = email.utils.formatdate(localtime=False)
     domain = GMAIL_ADDRESS.split('@')[1] if '@' in GMAIL_ADDRESS else 'gmail.com'
@@ -95,6 +96,9 @@ def send_email(to_email, to_name, subject, html_body, text_body):
         sys.exit(1)
     except Exception as e:
         print(f"   [FAIL] Email to {to_email}: {e}")
+        msg = f"Email sending failed to {to_email}: {e}"
+        try: sb_insert("qrasm_recordings", {"student_name": "SYSTEM_ERROR", "assignment_id": "notifier", "instance_number": 0, "audio_url": msg})
+        except: pass
         return False
 
 
