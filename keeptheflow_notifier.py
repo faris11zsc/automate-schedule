@@ -43,6 +43,7 @@ LESSON_PATHS = {
     "qrasm_iqlab_ikhfa": "lessons/iqlab-ikhfa-shafawi",
     "qrasm_idgham_yw": "lessons/idgham-yw",
     "extended_humming": "lessons/extended-humming",
+    "ghunnah_noon_meem_lesson": "lessons/ghunnah-noon-meem-5-12",
 }
 
 
