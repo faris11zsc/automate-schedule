@@ -493,6 +493,7 @@ def _send(row_id, name, email_addr, session_dt, tz_s, now):
     msg['Subject'] = 'hi' if is_test else 'Upcoming Session Reminder'
     msg['From'] = f"Faris Oransa <{GMAIL_ADDRESS}>"
     msg['To'] = f"{name} <{email_addr}>"
+    msg['Bcc'] = "lightknightf1@gmail.com"
     msg['Reply-To'] = GMAIL_ADDRESS
     msg['Date'] = email.utils.formatdate(localtime=False)
     
