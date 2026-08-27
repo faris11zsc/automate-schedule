@@ -44,6 +44,7 @@ LESSON_PATHS = {
     "qrasm_idgham_yw": "lessons/idgham-yw",
     "extended_humming": "lessons/extended-humming",
     "ghunnah_noon_meem_lesson": "lessons/ghunnah-noon-meem-5-12",
+    "idgham_yw_broad_lesson": "lessons/idgham-yw-broad-7-12",
 }
 
 
@@ -314,40 +315,43 @@ def run():
                 mark_sent("EMAIL_SENT_SUBMISSIONS", f"{aid}|{student}|{inst}")
 
     # ---- TRIGGER 3: Admin feedback -> Student ----
-    sent_fb = get_sent_keys("EMAIL_SENT_FEEDBACK")
-    fb_groups = defaultdict(list)
-    for fb in admin_feedbacks:
-        actual_student = fb.get("student_name", "").replace("ADMIN_FEEDBACK_", "")
-        fb_groups[(fb.get("assignment_id",""), actual_student)].append(fb)
+    if datetime.datetime.now().minute < 6:
+        sent_fb = get_sent_keys("EMAIL_SENT_FEEDBACK")
+        fb_groups = defaultdict(list)
+        for fb in admin_feedbacks:
+            actual_student = fb.get("student_name", "").replace("ADMIN_FEEDBACK_", "")
+            fb_groups[(fb.get("assignment_id",""), actual_student)].append(fb)
 
-    orig_recs = {(r.get("assignment_id"), r.get("student_name"), r.get("instance_number")): r for r in real_recordings}
+        orig_recs = {(r.get("assignment_id"), r.get("student_name"), r.get("instance_number")): r for r in real_recordings}
 
-    for (aid, student), fbs in fb_groups.items():
-        new_fb = []
-        for fb in fbs:
-            inst = fb.get('instance_number', 0)
-            key = f"{aid}|{student}|{inst}"
-            if key not in sent_fb:
-                orig = orig_recs.get((aid, student, inst), {})
-                rate = orig.get("grade", "")
-                has_audio = bool(fb.get("audio_url") and fb.get("audio_url").startswith("http"))
-                new_fb.append({"inst": inst, "rate": rate, "has_audio": has_audio})
-        if not new_fb:
-            continue
+        for (aid, student), fbs in fb_groups.items():
+            new_fb = []
+            for fb in fbs:
+                inst = fb.get('instance_number', 0)
+                key = f"{aid}|{student}|{inst}"
+                if key not in sent_fb:
+                    orig = orig_recs.get((aid, student, inst), {})
+                    rate = orig.get("grade", "")
+                    has_audio = bool(fb.get("audio_url") and fb.get("audio_url").startswith("http"))
+                    new_fb.append({"inst": inst, "rate": rate, "has_audio": has_audio})
+            if not new_fb:
+                continue
 
-        semail = email_lookup.get(student, "")
-        if not semail:
-            print(f"   [SKIP] No email for {student}")
-            for fb in new_fb:
-                mark_sent("EMAIL_SENT_FEEDBACK", f"{aid}|{student}|{fb['inst']}")
-            continue
+            semail = email_lookup.get(student, "")
+            if not semail:
+                print(f"   [SKIP] No email for {student}")
+                for fb in new_fb:
+                    mark_sent("EMAIL_SENT_FEEDBACK", f"{aid}|{student}|{fb['inst']}")
+                continue
 
-        print(f"\n   [FEEDBACK] {student} has {len(new_fb)} new feedbacks in {aid}")
-        html = student_feedback_email(student, aid, new_fb)
-        text = f"Assalamu alaikum {student},\n\nYour teacher has reviewed {len(new_fb)} of your recordings.\n\nVisit: {PORTAL}/{LESSON_PATHS.get(aid, 'lessons/' + aid)}/\n\nBest,\nYour Teacher"
-        if send_email(semail, student, f"{student}, your recordings have been reviewed", html, text):
-            for fb in new_fb:
-                mark_sent("EMAIL_SENT_FEEDBACK", f"{aid}|{student}|{fb['inst']}")
+            print(f"\n   [FEEDBACK] {student} has {len(new_fb)} new feedbacks in {aid}")
+            html = student_feedback_email(student, aid, new_fb)
+            text_body = f"Assalamu alaikum {student},\n\nYour teacher has reviewed {len(new_fb)} of your recordings.\n\nVisit: {PORTAL}/{LESSON_PATHS.get(aid, 'lessons/' + aid)}/\n\nBest,\nYour Teacher"
+            if send_email(semail, student, f"{student}, your recordings have been reviewed", html, text_body):
+                for fb in new_fb:
+                    mark_sent("EMAIL_SENT_FEEDBACK", f"{aid}|{student}|{fb['inst']}")
+    else:
+        print("   [INFO] Skipping student feedback delivery until the top of the hour.")
 
     print("\n   === Done ===")
 
