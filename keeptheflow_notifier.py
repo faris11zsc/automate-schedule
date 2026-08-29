@@ -40,9 +40,9 @@ SB_HEADERS = {
 PORTAL = "https://keep-the-flow.vercel.app"
 LESSON_PATHS = {
     "idgham_yw_lesson": "lessons/idgham-yw-5-12",
-    "qrasm_iqlab_ikhfa": "lessons/iqlab-ikhfa-shafawi",
-    "qrasm_idgham_yw": "lessons/idgham-yw",
-    "extended_humming": "lessons/extended-humming",
+    "ghunnah_5_12_lesson": "lessons/ghunnah-5-12",
+    "iqlab_ikhfa_shafawi_5_20_lesson": "lessons/iqlab-ikhfa-shafawi-5-20",
+    "extended_humming_5_12_lesson": "lessons/extended-humming-5-12",
     "ghunnah_noon_meem_lesson": "lessons/ghunnah-noon-meem-5-12",
     "idgham_yw_broad_lesson": "lessons/idgham-yw-broad-7-12",
 }
