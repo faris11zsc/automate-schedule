@@ -314,6 +314,7 @@ def run():
             for inst in new_instances:
                 mark_sent("EMAIL_SENT_SUBMISSIONS", f"{aid}|{student}|{inst}")
 
+    # ---- TRIGGER 3: Admin feedback -> Student ----
     if datetime.now().minute < 6:
         sent_fb = get_sent_keys("EMAIL_SENT_FEEDBACK")
         fb_groups = defaultdict(list)
