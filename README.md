@@ -28,3 +28,8 @@ If Faris asks you to update this system in a new chat:
 1. Make your changes strictly in `[wa_reminder.py](file:///D:/lighknight/automation/wa_reminder.py)`.
 2. Do not use standard text paths. Follow the Clickable Paths Protocol (`file:///`).
 3. Commit and push directly to GitHub (`git push origin main`). GitHub Actions will automatically deploy your code.
+4. **One-Shot Email Missions (Invoices/Reports):** Because SMTP credentials (`GMAIL_APP_PASSWORD`) reside strictly in GitHub Secrets, you cannot send emails directly from the local CLI. To send a one-off HTML email:
+   - Temporarily prepend the email logic to `wa_reminder.py` checking for a specific commit message flag (e.g., `if "[SEND_INVOICE]" in subprocess.check_output(["git", "log", "-1", "--pretty=%B"]).decode():`).
+   - Commit and push with that exact message (e.g., `[SEND_INVOICE] Trigger August Report`).
+   - The GitHub Actions cron (runs every 5 mins) will pick it up and send it.
+   - You must immediately schedule an internal timer to push a cleanup commit (removing the block) 5 minutes later so the next cron cycle doesn't double-send.
