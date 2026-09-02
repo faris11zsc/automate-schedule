@@ -281,12 +281,31 @@ def run():
 
     # ---- TRIGGER 1: New students ----
     sent_students = get_sent_keys("EMAIL_SENT_NEW_STUDENT")
-    for s in all_students:
-        sname = s.get("student_name", "")
-        semail = s.get("email", "")
+
+    # Also detect students from recordings who never registered in qrasm_student_emails
+    recording_student_names = set()
+    for r in real_recordings:
+        sn = r.get("student_name", "")
+        if sn and sn != "SYSTEM_ERROR" and not sn.startswith("EMAIL_SENT_") and not sn.startswith("ADMIN_"):
+            recording_student_names.add(sn)
+
+    # Auto-register missing students into qrasm_student_emails (with empty email)
+    registered_names = set(email_lookup.keys())
+    for sn in recording_student_names:
+        if sn not in registered_names:
+            print(f"   [AUTO-REGISTER] {sn} found in recordings but not in student_emails — inserting")
+            try:
+                sb_insert("qrasm_student_emails", {"student_name": sn, "email": ""})
+                email_lookup[sn] = ""
+            except Exception as e:
+                print(f"   [WARN] Auto-register failed for {sn}: {e}")
+
+    # Now notify admin about all new students
+    for sname in set(list(email_lookup.keys())):
         if not sname or sname in sent_students:
             continue
-        print(f"\n   [NEW STUDENT] {sname} ({semail})")
+        semail = email_lookup.get(sname, "")
+        print(f"\n   [NEW STUDENT] {sname} ({semail if semail else 'No email'})")
         html = admin_new_student_email(sname, semail)
         text = f"New student registered: {sname} ({semail if semail else 'No email'}). View portal at {PORTAL}"
         if send_email(ADMIN_EMAIL, "Admin", f"{sname} joined Keep The Flow", html, text):
@@ -339,9 +358,7 @@ def run():
 
             semail = email_lookup.get(student, "")
             if not semail:
-                print(f"   [SKIP] No email for {student}")
-                for fb in new_fb:
-                    mark_sent("EMAIL_SENT_FEEDBACK", f"{aid}|{student}|{fb['inst']}")
+                print(f"   [SKIP] No email for {student} — feedback stays pending until they add an email")
                 continue
 
             print(f"\n   [FEEDBACK] {student} has {len(new_fb)} new feedbacks in {aid}")
