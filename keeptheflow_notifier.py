@@ -370,6 +370,68 @@ def run():
     else:
         print("   [INFO] Skipping student feedback delivery until the top of the hour.")
 
+    # ---- TRIGGER 4: New quiz assigned -> notify student ----
+    sent_quiz = get_sent_keys("EMAIL_SENT_QUIZ")
+    quiz_defs = [r for r in all_rows if r.get("student_name", "").startswith("QUIZ_DEF_") and r.get("assignment_id") == "quizme"]
+    for qd in quiz_defs:
+        sname_raw = qd.get("student_name", "")
+        student = sname_raw.replace("QUIZ_DEF_", "")
+        quiz_id = str(qd.get("instance_number", 0))
+        key = f"{quiz_id}|{student}"
+        if key in sent_quiz:
+            continue
+        semail = email_lookup.get(student, "")
+        if not semail:
+            print(f"   [SKIP] No email for quiz notification to {student}")
+            continue
+        try:
+            quiz_data = json.loads(qd.get("grade", "{}"))
+        except:
+            quiz_data = {}
+        title = quiz_data.get("title", qd.get("audio_url", "New Quiz"))
+        q_count = len(quiz_data.get("questions", []))
+        quiz_link = f"{PORTAL}/quizme/quiz.html?quizId={quiz_id}&student={student}"
+        html_body = f"""<div style="font-family:'Inter',sans-serif;max-width:600px;margin:0 auto;background:#0f1a30;color:#e8e6e3;padding:40px 30px;border-radius:20px;">
+<h1 style="color:#c5a44e;text-align:center;font-size:24px;margin-bottom:8px;">🧠 New Quiz Available</h1>
+<p style="text-align:center;color:#8a95a8;margin-bottom:30px;">Assalamu alaikum {student}</p>
+<div style="background:rgba(42,58,94,0.5);border:1px solid rgba(197,164,78,0.2);border-radius:16px;padding:24px;text-align:center;">
+<h2 style="color:#e8e6e3;margin:0 0 8px;">{title}</h2>
+<p style="color:#8a95a8;margin:0 0 20px;">{q_count} questions</p>
+<a href="{quiz_link}" style="display:inline-block;background:#c5a44e;color:#1a2744;padding:14px 32px;border-radius:12px;text-decoration:none;font-weight:700;font-size:16px;">Take Quiz →</a>
+</div>
+<p style="text-align:center;color:#8a95a8;margin-top:30px;font-size:13px;">Keep The Flow — Your Teacher</p>
+</div>"""
+        text_body = f"Assalamu alaikum {student},\n\nA new quiz '{title}' with {q_count} questions is waiting for you.\n\nTake it here: {quiz_link}\n\nBest,\nYour Teacher"
+        print(f"\n   [QUIZ] Notifying {student} about quiz: {title}")
+        if send_email(semail, student, f"{student}, a new quiz is waiting for you!", html_body, text_body):
+            mark_sent("EMAIL_SENT_QUIZ", key)
+
+    # ---- TRIGGER 5: Quiz completed -> notify admin ----
+    sent_quiz_done = get_sent_keys("EMAIL_SENT_QUIZ_DONE")
+    quiz_scores = [r for r in all_rows if r.get("student_name", "").startswith("QUIZ_SCORE_") and r.get("assignment_id") == "quizme"]
+    for qs in quiz_scores:
+        sname_raw = qs.get("student_name", "")
+        student = sname_raw.replace("QUIZ_SCORE_", "")
+        quiz_id = str(qs.get("instance_number", 0))
+        key = f"{quiz_id}|{student}"
+        if key in sent_quiz_done:
+            continue
+        score_str = qs.get("grade", "?/?")
+        title = qs.get("audio_url", "Quiz")
+        print(f"\n   [QUIZ DONE] {student} completed '{title}' with score {score_str}")
+        html_body = f"""<div style="font-family:'Inter',sans-serif;max-width:600px;margin:0 auto;background:#0f1a30;color:#e8e6e3;padding:40px 30px;border-radius:20px;">
+<h1 style="color:#c5a44e;text-align:center;font-size:24px;margin-bottom:8px;">📊 Quiz Completed</h1>
+<p style="text-align:center;color:#8a95a8;margin-bottom:30px;">{student} just finished a quiz</p>
+<div style="background:rgba(42,58,94,0.5);border:1px solid rgba(197,164,78,0.2);border-radius:16px;padding:24px;text-align:center;">
+<h2 style="color:#e8e6e3;margin:0 0 8px;">{title}</h2>
+<p style="font-size:48px;color:#c5a44e;margin:16px 0;font-weight:800;">{score_str}</p>
+</div>
+<p style="text-align:center;color:#8a95a8;margin-top:30px;font-size:13px;">Keep The Flow — Admin Notification</p>
+</div>"""
+        text_body = f"{student} completed quiz '{title}' with score {score_str}."
+        if send_email(ADMIN_EMAIL, "Admin", f"{student} completed quiz: {title} ({score_str})", html_body, text_body):
+            mark_sent("EMAIL_SENT_QUIZ_DONE", key)
+
     print("\n   === Done ===")
 
 
