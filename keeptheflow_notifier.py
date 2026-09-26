@@ -32,7 +32,8 @@ SB_URL = os.environ.get("SUPABASE_URL") or "https://lhebavvnrwqojbhyodwc.supabas
 SB_KEY = os.environ.get("SUPABASE_KEY") or "sb_publishable_JW75ayCf5SbvyT-02GmjNQ_vFpivPTU"
 SB_HEADERS = {
     "apikey": SB_KEY,
-    "Authorization": f"Bearer {SB_KEY}",
+    "Authorization": f"Bearer {SB_KEY    "madd_lazim_lesson": "lessons/madd-lazim-7-12",
+}",
     "Content-Type": "application/json",
     "Prefer": "return=representation",
 }
