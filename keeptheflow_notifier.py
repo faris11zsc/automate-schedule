@@ -32,8 +32,7 @@ SB_URL = os.environ.get("SUPABASE_URL") or "https://lhebavvnrwqojbhyodwc.supabas
 SB_KEY = os.environ.get("SUPABASE_KEY") or "sb_publishable_JW75ayCf5SbvyT-02GmjNQ_vFpivPTU"
 SB_HEADERS = {
     "apikey": SB_KEY,
-    "Authorization": f"Bearer {SB_KEY    "madd_lazim_lesson": "lessons/madd-lazim-7-12",
-}",
+    "Authorization": f"Bearer {SB_KEY}",
     "Content-Type": "application/json",
     "Prefer": "return=representation",
 }
@@ -46,6 +45,7 @@ LESSON_PATHS = {
     "extended_humming_5_12_lesson": "lessons/extended-humming-5-12",
     "ghunnah_noon_meem_lesson": "lessons/ghunnah-noon-meem-5-12",
     "idgham_yw_broad_lesson": "lessons/idgham-yw-broad-7-12",
+    "madd_lazim_lesson": "lessons/madd-lazim-7-12",
 }
 
 
