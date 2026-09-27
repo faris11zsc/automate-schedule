@@ -87,10 +87,26 @@ _validate_config()
 # ======= SUPABASE REST HELPERS =======
 
 def sb_get(table, params=""):
-    url = f"{SB_URL}/rest/v1/{table}?{params}"
-    r = requests.get(url, headers=SB_HEADERS, timeout=15)
-    r.raise_for_status()
-    return r.json()
+    """Fetch all rows from a Supabase table, paginating past the 1000-row default limit."""
+    all_data = []
+    batch_size = 5000
+    offset = 0
+    while True:
+        url = f"{SB_URL}/rest/v1/{table}?{params}"
+        # Add Range header for pagination
+        headers = {**SB_HEADERS, "Range": f"{offset}-{offset + batch_size - 1}"}
+        r = requests.get(url, headers=headers, timeout=30)
+        if r.status_code == 416:  # Range not satisfiable = no more data
+            break
+        r.raise_for_status()
+        batch = r.json()
+        if not batch:
+            break
+        all_data.extend(batch)
+        if len(batch) < batch_size:
+            break
+        offset += batch_size
+    return all_data
 
 def sb_insert(table, data):
     url = f"{SB_URL}/rest/v1/{table}"
