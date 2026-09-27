@@ -56,6 +56,7 @@ LESSON_PATHS = {
     "ghunnah_noon_meem_lesson": "lessons/ghunnah-noon-meem-5-12",
     "idgham_yw_broad_lesson": "lessons/idgham-yw-broad-7-12",
     "madd_lazim_lesson": "lessons/madd-lazim-7-12",
+    "madd_lazim_kalimi_lesson": "lessons/tripled-extended-vowels",
 }
 
 # ======= SELF-VALIDATION (guards against accidental corruption) =======
