@@ -48,6 +48,30 @@ LESSON_PATHS = {
     "madd_lazim_lesson": "lessons/madd-lazim-7-12",
 }
 
+# ======= SELF-VALIDATION (guards against accidental corruption) =======
+# If any external process (branding skill, etc.) accidentally edits this file
+# and corrupts the config, this check will ABORT immediately with a clear message.
+def _validate_config():
+    auth = SB_HEADERS.get("Authorization", "")
+    if not auth.startswith("Bearer ") or len(auth) < 15:
+        raise SystemExit(
+            "[FATAL] SB_HEADERS['Authorization'] is corrupted!\n"
+            f"  Current value: {repr(auth)}\n"
+            "  Expected format: 'Bearer <key>'\n"
+            "  This file may have been corrupted by an external process."
+        )
+    required_keys = {"apikey", "Authorization", "Content-Type", "Prefer"}
+    missing = required_keys - set(SB_HEADERS.keys())
+    if missing:
+        raise SystemExit(f"[FATAL] SB_HEADERS missing keys: {missing}")
+    for path_key, path_val in LESSON_PATHS.items():
+        if not isinstance(path_val, str) or not path_val.startswith("lessons/"):
+            raise SystemExit(
+                f"[FATAL] LESSON_PATHS['{path_key}'] is corrupted: {repr(path_val)}"
+            )
+_validate_config()
+
+
 
 # ======= SUPABASE REST HELPERS =======
 
@@ -335,41 +359,38 @@ def run():
                 mark_sent("EMAIL_SENT_SUBMISSIONS", f"{aid}|{student}|{inst}")
 
     # ---- TRIGGER 3: Admin feedback -> Student ----
-    if datetime.now().minute < 6:
-        sent_fb = get_sent_keys("EMAIL_SENT_FEEDBACK")
-        fb_groups = defaultdict(list)
-        for fb in admin_feedbacks:
-            actual_student = fb.get("student_name", "").replace("ADMIN_FEEDBACK_", "")
-            fb_groups[(fb.get("assignment_id",""), actual_student)].append(fb)
+    sent_fb = get_sent_keys("EMAIL_SENT_FEEDBACK")
+    fb_groups = defaultdict(list)
+    for fb in admin_feedbacks:
+        actual_student = fb.get("student_name", "").replace("ADMIN_FEEDBACK_", "")
+        fb_groups[(fb.get("assignment_id",""), actual_student)].append(fb)
 
-        orig_recs = {(r.get("assignment_id"), r.get("student_name"), r.get("instance_number")): r for r in real_recordings}
+    orig_recs = {(r.get("assignment_id"), r.get("student_name"), r.get("instance_number")): r for r in real_recordings}
 
-        for (aid, student), fbs in fb_groups.items():
-            new_fb = []
-            for fb in fbs:
-                inst = fb.get('instance_number', 0)
-                key = f"{aid}|{student}|{inst}"
-                if key not in sent_fb:
-                    orig = orig_recs.get((aid, student, inst), {})
-                    rate = orig.get("grade", "")
-                    has_audio = bool(fb.get("audio_url") and fb.get("audio_url").startswith("http"))
-                    new_fb.append({"inst": inst, "rate": rate, "has_audio": has_audio})
-            if not new_fb:
-                continue
+    for (aid, student), fbs in fb_groups.items():
+        new_fb = []
+        for fb in fbs:
+            inst = fb.get('instance_number', 0)
+            key = f"{aid}|{student}|{inst}"
+            if key not in sent_fb:
+                orig = orig_recs.get((aid, student, inst), {})
+                rate = orig.get("grade", "")
+                has_audio = bool(fb.get("audio_url") and fb.get("audio_url").startswith("http"))
+                new_fb.append({"inst": inst, "rate": rate, "has_audio": has_audio})
+        if not new_fb:
+            continue
 
-            semail = email_lookup.get(student, "")
-            if not semail:
-                print(f"   [SKIP] No email for {student} — feedback stays pending until they add an email")
-                continue
+        semail = email_lookup.get(student, "")
+        if not semail:
+            print(f"   [SKIP] No email for {student} — feedback stays pending until they add an email")
+            continue
 
-            print(f"\n   [FEEDBACK] {student} has {len(new_fb)} new feedbacks in {aid}")
-            html = student_feedback_email(student, aid, new_fb)
-            text_body = f"Assalamu alaikum {student},\n\nYour teacher has reviewed {len(new_fb)} of your recordings.\n\nVisit: {PORTAL}/{LESSON_PATHS.get(aid, 'lessons/' + aid)}/\n\nBest,\nYour Teacher"
-            if send_email(semail, student, f"{student}, your recordings have been reviewed", html, text_body):
-                for fb in new_fb:
-                    mark_sent("EMAIL_SENT_FEEDBACK", f"{aid}|{student}|{fb['inst']}")
-    else:
-        print("   [INFO] Skipping student feedback delivery until the top of the hour.")
+        print(f"\n   [FEEDBACK] {student} has {len(new_fb)} new feedbacks in {aid}")
+        html = student_feedback_email(student, aid, new_fb)
+        text_body = f"Assalamu alaikum {student},\n\nYour teacher has reviewed {len(new_fb)} of your recordings.\n\nVisit: {PORTAL}/{LESSON_PATHS.get(aid, 'lessons/' + aid)}/\n\nBest,\nYour Teacher"
+        if send_email(semail, student, f"{student}, your recordings have been reviewed", html, text_body):
+            for fb in new_fb:
+                mark_sent("EMAIL_SENT_FEEDBACK", f"{aid}|{student}|{fb['inst']}")
 
     # ---- TRIGGER 4: New quiz assigned -> notify student ----
     sent_quiz = get_sent_keys("EMAIL_SENT_QUIZ")
