@@ -288,10 +288,38 @@ def mark_sent(tag, key):
         pass
 
 
+# ======= ROBUST FETCH WITH RETRY =======
+
+def sb_get_safe(table, params="", max_retries=3):
+    """Fetch with retries and timeout protection."""
+    for attempt in range(max_retries):
+        try:
+            return sb_get(table, params)
+        except Exception as e:
+            print(f"   [WARN] Fetch attempt {attempt+1}/{max_retries} failed: {e}")
+            if attempt == max_retries - 1:
+                raise
+            import time
+            time.sleep(2 * (attempt + 1))
+
+# Filters to exclude system/config rows from student queries
+EXCLUDE_SYSTEM = (
+    "&student_name=not.like.EMAIL_SENT_*"
+    "&student_name=not.like.ADMIN_*"
+    "&student_name=not.like.QUIZ_*"
+    "&student_name=not.like.SYSTEM_*"
+    "&student_name=not.like.STUDENT_EMAIL_*"
+    "&student_name=not.eq.LESSONS_CONFIG"
+    "&student_name=not.eq.LEARN_CONFIG"
+    "&student_name=not.like.LEARN_PAGE_*"
+    "&student_name=not.eq.ADMIN_HIDDEN"
+)
+
+
 # ======= MAIN LOGIC =======
 
 def run():
-    print("=== KeepTheFlow Notifier v3.2 ===")
+    print("=== KeepTheFlow Notifier v4.0 (Targeted Queries) ===")
     print(f"   Gmail address: {GMAIL_ADDRESS or 'NOT SET'}")
     print(f"   Gmail password: {'SET (' + str(len(GMAIL_APP_PASSWORD)) + ' chars)' if GMAIL_APP_PASSWORD else 'NOT SET'}")
 
@@ -309,141 +337,172 @@ def run():
         print(f"   [FATAL] Supabase connection failed: {e}")
         sys.exit(1)
 
-    all_rows = sb_get("qrasm_recordings", "select=*")
-    print(f"   Total rows: {len(all_rows)}")
-
+    # Load student emails
     try:
-        all_students = sb_get("qrasm_student_emails", "select=*")
+        all_students = sb_get_safe("qrasm_student_emails", "select=*")
     except Exception:
         all_students = []
     print(f"   Registered students: {len(all_students)}")
-
     email_lookup = {s.get("student_name", ""): s.get("email", "") for s in all_students}
 
-    real_recordings = []
-    admin_feedbacks = []
-    for row in all_rows:
-        sname = row.get("student_name", "")
-        if sname.startswith("EMAIL_SENT_") or sname == "SYSTEM_LAST_CHECK" or sname == "ADMIN_HIDDEN":
-            continue
-        if sname.startswith("ADMIN_FEEDBACK_"):
-            admin_feedbacks.append(row)
-        elif not sname.startswith("STUDENT_EMAIL_"):
-            real_recordings.append(row)
+    errors = []
 
-    # ---- TRIGGER 1: New students ----
-    sent_students = get_sent_keys("EMAIL_SENT_NEW_STUDENT")
+    # ═══════════════════════════════════════════════════════
+    # TRIGGER 1: New students
+    # ═══════════════════════════════════════════════════════
+    try:
+        print("\n   --- Trigger 1: New Students ---")
+        sent_students = get_sent_keys("EMAIL_SENT_NEW_STUDENT")
 
-    # Also detect students from recordings who never registered in qrasm_student_emails
-    recording_student_names = set()
-    for r in real_recordings:
-        sn = r.get("student_name", "")
-        if sn and sn != "SYSTEM_ERROR" and not sn.startswith("EMAIL_SENT_") and not sn.startswith("ADMIN_"):
-            recording_student_names.add(sn)
+        # Detect students from recordings (targeted: only student_name column, exclude system rows)
+        real_recs_names = sb_get_safe("qrasm_recordings", "select=student_name" + EXCLUDE_SYSTEM)
+        recording_student_names = {r.get("student_name", "") for r in real_recs_names if r.get("student_name")}
 
-    # Auto-register missing students into qrasm_student_emails (with empty email)
-    registered_names = set(email_lookup.keys())
-    for sn in recording_student_names:
-        if sn not in registered_names:
-            print(f"   [AUTO-REGISTER] {sn} found in recordings but not in student_emails — inserting")
-            try:
-                sb_insert("qrasm_student_emails", {"student_name": sn, "email": ""})
-                email_lookup[sn] = ""
-            except Exception as e:
-                print(f"   [WARN] Auto-register failed for {sn}: {e}")
+        registered_names = set(email_lookup.keys())
+        for sn in recording_student_names:
+            if sn not in registered_names:
+                print(f"   [AUTO-REGISTER] {sn}")
+                try:
+                    sb_insert("qrasm_student_emails", {"student_name": sn, "email": ""})
+                    email_lookup[sn] = ""
+                except Exception as e:
+                    print(f"   [WARN] Auto-register failed for {sn}: {e}")
 
-    # Now notify admin about all new students
-    for sname in set(list(email_lookup.keys())):
-        if not sname or sname in sent_students:
-            continue
-        semail = email_lookup.get(sname, "")
-        print(f"\n   [NEW STUDENT] {sname} ({semail if semail else 'No email'})")
-        html = admin_new_student_email(sname, semail)
-        text = f"New student registered: {sname} ({semail if semail else 'No email'}). View portal at {PORTAL}"
-        if send_email(ADMIN_EMAIL, "Admin", f"{sname} joined Keep The Flow", html, text):
-            mark_sent("EMAIL_SENT_NEW_STUDENT", sname)
-
-    # ---- TRIGGER 2: New recordings ----
-    sent_subs = get_sent_keys("EMAIL_SENT_SUBMISSIONS")
-    groups = defaultdict(list)
-    for rec in real_recordings:
-        groups[(rec.get("assignment_id",""), rec.get("student_name",""))].append(rec)
-
-    for (aid, student), recs in groups.items():
-        new_instances = []
-        for r in recs:
-            key = f"{aid}|{student}|{r.get('instance_number',0)}"
-            if key not in sent_subs:
-                new_instances.append(r.get("instance_number", 0))
-        if not new_instances:
-            continue
-        semail = email_lookup.get(student, "")
-        print(f"\n   [RECORDINGS] {student} has {len(new_instances)} new in {aid}")
-        html = admin_new_recordings_email(student, semail, aid, new_instances, len(recs))
-        text = f"{student} submitted {len(new_instances)} recording(s) for {aid}. Review at {PORTAL}"
-        if send_email(ADMIN_EMAIL, "Admin", f"{student} - {len(new_instances)} new recording(s)", html, text):
-            for inst in new_instances:
-                mark_sent("EMAIL_SENT_SUBMISSIONS", f"{aid}|{student}|{inst}")
-
-    # ---- TRIGGER 3: Admin feedback -> Student (runs at :00 and :30) ----
-    if datetime.now(timezone.utc).minute % 30 < 6:
-        sent_fb = get_sent_keys("EMAIL_SENT_FEEDBACK")
-        fb_groups = defaultdict(list)
-        for fb in admin_feedbacks:
-            actual_student = fb.get("student_name", "").replace("ADMIN_FEEDBACK_", "")
-            fb_groups[(fb.get("assignment_id",""), actual_student)].append(fb)
-
-        orig_recs = {(r.get("assignment_id"), r.get("student_name"), r.get("instance_number")): r for r in real_recordings}
-
-        for (aid, student), fbs in fb_groups.items():
-            new_fb = []
-            for fb in fbs:
-                inst = fb.get('instance_number', 0)
-                key = f"{aid}|{student}|{inst}"
-                if key not in sent_fb:
-                    orig = orig_recs.get((aid, student, inst), {})
-                    rate = orig.get("grade", "")
-                    has_audio = bool(fb.get("audio_url") and fb.get("audio_url").startswith("http"))
-                    new_fb.append({"inst": inst, "rate": rate, "has_audio": has_audio})
-            if not new_fb:
+        for sname in set(list(email_lookup.keys())):
+            if not sname or sname in sent_students:
                 continue
+            semail = email_lookup.get(sname, "")
+            print(f"\n   [NEW STUDENT] {sname} ({semail if semail else 'No email'})")
+            html = admin_new_student_email(sname, semail)
+            text = f"New student registered: {sname} ({semail if semail else 'No email'}). View portal at {PORTAL}"
+            if send_email(ADMIN_EMAIL, "Admin", f"{sname} joined Keep The Flow", html, text):
+                mark_sent("EMAIL_SENT_NEW_STUDENT", sname)
+    except Exception as e:
+        print(f"   [ERROR] Trigger 1 failed: {e}")
+        errors.append(f"T1: {e}")
 
+    # ═══════════════════════════════════════════════════════
+    # TRIGGER 2: New recordings → notify admin
+    # ═══════════════════════════════════════════════════════
+    try:
+        print("\n   --- Trigger 2: New Recordings ---")
+        sent_subs = get_sent_keys("EMAIL_SENT_SUBMISSIONS")
+
+        # Targeted: only needed columns, exclude system rows
+        real_recordings = sb_get_safe("qrasm_recordings",
+            "select=student_name,assignment_id,instance_number,audio_url,grade,created_at" + EXCLUDE_SYSTEM)
+        print(f"   Real recordings: {len(real_recordings)}")
+
+        groups = defaultdict(list)
+        for rec in real_recordings:
+            groups[(rec.get("assignment_id",""), rec.get("student_name",""))].append(rec)
+
+        for (aid, student), recs in groups.items():
+            new_instances = []
+            for r in recs:
+                key = f"{aid}|{student}|{r.get('instance_number',0)}"
+                if key not in sent_subs:
+                    new_instances.append(r.get("instance_number", 0))
+            if not new_instances:
+                continue
+            semail = email_lookup.get(student, "")
+            print(f"\n   [RECORDINGS] {student} has {len(new_instances)} new in {aid}")
+            html = admin_new_recordings_email(student, semail, aid, new_instances, len(recs))
+            text = f"{student} submitted {len(new_instances)} recording(s) for {aid}. Review at {PORTAL}"
+            if send_email(ADMIN_EMAIL, "Admin", f"{student} - {len(new_instances)} new recording(s)", html, text):
+                for inst in new_instances:
+                    mark_sent("EMAIL_SENT_SUBMISSIONS", f"{aid}|{student}|{inst}")
+    except Exception as e:
+        print(f"   [ERROR] Trigger 2 failed: {e}")
+        errors.append(f"T2: {e}")
+
+    # ═══════════════════════════════════════════════════════
+    # TRIGGER 3: Admin feedback → Student (runs at :00 and :30)
+    # ═══════════════════════════════════════════════════════
+    try:
+        print("\n   --- Trigger 3: Admin Feedback ---")
+        if datetime.now(timezone.utc).minute % 30 < 6:
+            sent_fb = get_sent_keys("EMAIL_SENT_FEEDBACK")
+
+            # Targeted: only admin feedback rows
+            admin_feedbacks = sb_get_safe("qrasm_recordings",
+                "select=student_name,assignment_id,instance_number,audio_url,grade,created_at"
+                "&student_name=like.ADMIN_FEEDBACK_*")
+            print(f"   Admin feedbacks: {len(admin_feedbacks)}")
+
+            # Targeted: only real student recordings for grade lookup
+            real_recordings_for_fb = sb_get_safe("qrasm_recordings",
+                "select=student_name,assignment_id,instance_number,grade" + EXCLUDE_SYSTEM)
+            orig_recs = {(r.get("assignment_id"), r.get("student_name"), r.get("instance_number")): r for r in real_recordings_for_fb}
+
+            fb_groups = defaultdict(list)
+            for fb in admin_feedbacks:
+                actual_student = fb.get("student_name", "").replace("ADMIN_FEEDBACK_", "")
+                fb_groups[(fb.get("assignment_id",""), actual_student)].append(fb)
+
+            for (aid, student), fbs in fb_groups.items():
+                new_fb = []
+                for fb in fbs:
+                    inst = fb.get('instance_number', 0)
+                    key = f"{aid}|{student}|{inst}"
+                    if key not in sent_fb:
+                        orig = orig_recs.get((aid, student, inst), {})
+                        rate = orig.get("grade", "")
+                        has_audio = bool(fb.get("audio_url") and fb.get("audio_url").startswith("http"))
+                        new_fb.append({"inst": inst, "rate": rate, "has_audio": has_audio})
+                if not new_fb:
+                    continue
+
+                semail = email_lookup.get(student, "")
+                if not semail:
+                    print(f"   [SKIP] No email for {student} — feedback stays pending until they add an email")
+                    continue
+
+                print(f"\n   [FEEDBACK] {student} has {len(new_fb)} new feedbacks in {aid}")
+                html = student_feedback_email(student, aid, new_fb)
+                text_body = f"Assalamu alaikum {student},\n\nYour teacher has reviewed {len(new_fb)} of your recordings.\n\nVisit: {PORTAL}/{LESSON_PATHS.get(aid, 'lessons/' + aid)}/\n\nBest,\nYour Teacher"
+                if send_email(semail, student, f"{student}, your recordings have been reviewed", html, text_body):
+                    for fb in new_fb:
+                        mark_sent("EMAIL_SENT_FEEDBACK", f"{aid}|{student}|{fb['inst']}")
+        else:
+            print("   [INFO] Skipping student feedback delivery until next :00 or :30.")
+    except Exception as e:
+        print(f"   [ERROR] Trigger 3 failed: {e}")
+        errors.append(f"T3: {e}")
+
+    # ═══════════════════════════════════════════════════════
+    # TRIGGER 4: New quiz assigned → notify student
+    # ═══════════════════════════════════════════════════════
+    try:
+        print("\n   --- Trigger 4: Quiz Assigned ---")
+        sent_quiz = get_sent_keys("EMAIL_SENT_QUIZ")
+
+        # Targeted: only QUIZ_DEF_ rows
+        quiz_defs = sb_get_safe("qrasm_recordings",
+            "select=student_name,assignment_id,instance_number,grade,audio_url"
+            "&student_name=like.QUIZ_DEF_*"
+            "&assignment_id=eq.quizme")
+        print(f"   Quiz definitions: {len(quiz_defs)}")
+
+        for qd in quiz_defs:
+            sname_raw = qd.get("student_name", "")
+            student = sname_raw.replace("QUIZ_DEF_", "")
+            quiz_id = str(qd.get("instance_number", 0))
+            key = f"{quiz_id}|{student}"
+            if key in sent_quiz:
+                continue
             semail = email_lookup.get(student, "")
             if not semail:
-                print(f"   [SKIP] No email for {student} — feedback stays pending until they add an email")
+                print(f"   [SKIP] No email for quiz notification to {student}")
                 continue
-
-            print(f"\n   [FEEDBACK] {student} has {len(new_fb)} new feedbacks in {aid}")
-            html = student_feedback_email(student, aid, new_fb)
-            text_body = f"Assalamu alaikum {student},\n\nYour teacher has reviewed {len(new_fb)} of your recordings.\n\nVisit: {PORTAL}/{LESSON_PATHS.get(aid, 'lessons/' + aid)}/\n\nBest,\nYour Teacher"
-            if send_email(semail, student, f"{student}, your recordings have been reviewed", html, text_body):
-                for fb in new_fb:
-                    mark_sent("EMAIL_SENT_FEEDBACK", f"{aid}|{student}|{fb['inst']}")
-    else:
-        print("   [INFO] Skipping student feedback delivery until next :00 or :30.")
-
-    # ---- TRIGGER 4: New quiz assigned -> notify student ----
-    sent_quiz = get_sent_keys("EMAIL_SENT_QUIZ")
-    quiz_defs = [r for r in all_rows if r.get("student_name", "").startswith("QUIZ_DEF_") and r.get("assignment_id") == "quizme"]
-    for qd in quiz_defs:
-        sname_raw = qd.get("student_name", "")
-        student = sname_raw.replace("QUIZ_DEF_", "")
-        quiz_id = str(qd.get("instance_number", 0))
-        key = f"{quiz_id}|{student}"
-        if key in sent_quiz:
-            continue
-        semail = email_lookup.get(student, "")
-        if not semail:
-            print(f"   [SKIP] No email for quiz notification to {student}")
-            continue
-        try:
-            quiz_data = json.loads(qd.get("grade", "{}"))
-        except:
-            quiz_data = {}
-        title = quiz_data.get("title", qd.get("audio_url", "New Quiz"))
-        q_count = len(quiz_data.get("questions", []))
-        quiz_link = f"{PORTAL}/quizme/quiz.html?quizId={quiz_id}&student={student}"
-        html_body = f"""<div style="font-family:'Inter',sans-serif;max-width:600px;margin:0 auto;background:#0f1a30;color:#e8e6e3;padding:40px 30px;border-radius:20px;">
+            try:
+                quiz_data = json.loads(qd.get("grade", "{}"))
+            except:
+                quiz_data = {}
+            title = quiz_data.get("title", qd.get("audio_url", "New Quiz"))
+            q_count = len(quiz_data.get("questions", []))
+            quiz_link = f"{PORTAL}/quizme/quiz.html?quizId={quiz_id}&student={student}"
+            html_body = f"""<div style="font-family:'Inter',sans-serif;max-width:600px;margin:0 auto;background:#0f1a30;color:#e8e6e3;padding:40px 30px;border-radius:20px;">
 <h1 style="color:#c5a44e;text-align:center;font-size:24px;margin-bottom:8px;">🧠 New Quiz Available</h1>
 <p style="text-align:center;color:#8a95a8;margin-bottom:30px;">Assalamu alaikum {student}</p>
 <div style="background:rgba(42,58,94,0.5);border:1px solid rgba(197,164,78,0.2);border-radius:16px;padding:24px;text-align:center;">
@@ -453,25 +512,39 @@ def run():
 </div>
 <p style="text-align:center;color:#8a95a8;margin-top:30px;font-size:13px;">Keep The Flow — Your Teacher</p>
 </div>"""
-        text_body = f"Assalamu alaikum {student},\n\nA new quiz '{title}' with {q_count} questions is waiting for you.\n\nTake it here: {quiz_link}\n\nBest,\nYour Teacher"
-        print(f"\n   [QUIZ] Notifying {student} about quiz: {title}")
-        if send_email(semail, student, f"{student}, a new quiz is waiting for you!", html_body, text_body):
-            mark_sent("EMAIL_SENT_QUIZ", key)
+            text_body = f"Assalamu alaikum {student},\n\nA new quiz '{title}' with {q_count} questions is waiting for you.\n\nTake it here: {quiz_link}\n\nBest,\nYour Teacher"
+            print(f"\n   [QUIZ] Notifying {student} about quiz: {title}")
+            if send_email(semail, student, f"{student}, a new quiz is waiting for you!", html_body, text_body):
+                mark_sent("EMAIL_SENT_QUIZ", key)
+    except Exception as e:
+        print(f"   [ERROR] Trigger 4 failed: {e}")
+        errors.append(f"T4: {e}")
 
-    # ---- TRIGGER 5: Quiz completed -> notify admin ----
-    sent_quiz_done = get_sent_keys("EMAIL_SENT_QUIZ_DONE")
-    quiz_scores = [r for r in all_rows if r.get("student_name", "").startswith("QUIZ_SCORE_") and r.get("assignment_id") == "quizme"]
-    for qs in quiz_scores:
-        sname_raw = qs.get("student_name", "")
-        student = sname_raw.replace("QUIZ_SCORE_", "")
-        quiz_id = str(qs.get("instance_number", 0))
-        key = f"{quiz_id}|{student}"
-        if key in sent_quiz_done:
-            continue
-        score_str = qs.get("grade", "?/?")
-        title = qs.get("audio_url", "Quiz")
-        print(f"\n   [QUIZ DONE] {student} completed '{title}' with score {score_str}")
-        html_body = f"""<div style="font-family:'Inter',sans-serif;max-width:600px;margin:0 auto;background:#0f1a30;color:#e8e6e3;padding:40px 30px;border-radius:20px;">
+    # ═══════════════════════════════════════════════════════
+    # TRIGGER 5: Quiz completed → notify admin with grade
+    # ═══════════════════════════════════════════════════════
+    try:
+        print("\n   --- Trigger 5: Quiz Completed ---")
+        sent_quiz_done = get_sent_keys("EMAIL_SENT_QUIZ_DONE")
+
+        # Targeted: only QUIZ_SCORE_ rows
+        quiz_scores = sb_get_safe("qrasm_recordings",
+            "select=student_name,assignment_id,instance_number,grade,audio_url,created_at"
+            "&student_name=like.QUIZ_SCORE_*"
+            "&assignment_id=eq.quizme")
+        print(f"   Quiz scores: {len(quiz_scores)}")
+
+        for qs in quiz_scores:
+            sname_raw = qs.get("student_name", "")
+            student = sname_raw.replace("QUIZ_SCORE_", "")
+            quiz_id = str(qs.get("instance_number", 0))
+            key = f"{quiz_id}|{student}"
+            if key in sent_quiz_done:
+                continue
+            score_str = qs.get("grade", "?/?")
+            title = qs.get("audio_url", "Quiz")
+            print(f"\n   [QUIZ DONE] {student} completed '{title}' with score {score_str}")
+            html_body = f"""<div style="font-family:'Inter',sans-serif;max-width:600px;margin:0 auto;background:#0f1a30;color:#e8e6e3;padding:40px 30px;border-radius:20px;">
 <h1 style="color:#c5a44e;text-align:center;font-size:24px;margin-bottom:8px;">📊 Quiz Completed</h1>
 <p style="text-align:center;color:#8a95a8;margin-bottom:30px;">{student} just finished a quiz</p>
 <div style="background:rgba(42,58,94,0.5);border:1px solid rgba(197,164,78,0.2);border-radius:16px;padding:24px;text-align:center;">
@@ -480,9 +553,23 @@ def run():
 </div>
 <p style="text-align:center;color:#8a95a8;margin-top:30px;font-size:13px;">Keep The Flow — Admin Notification</p>
 </div>"""
-        text_body = f"{student} completed quiz '{title}' with score {score_str}."
-        if send_email(ADMIN_EMAIL, "Admin", f"{student} completed quiz: {title} ({score_str})", html_body, text_body):
-            mark_sent("EMAIL_SENT_QUIZ_DONE", key)
+            text_body = f"{student} completed quiz '{title}' with score {score_str}."
+            if send_email(ADMIN_EMAIL, "Admin", f"{student} completed quiz: {title} ({score_str})", html_body, text_body):
+                mark_sent("EMAIL_SENT_QUIZ_DONE", key)
+    except Exception as e:
+        print(f"   [ERROR] Trigger 5 failed: {e}")
+        errors.append(f"T5: {e}")
+
+    # ═══════════════════════════════════════════════════════
+    # FINAL: Report errors if any trigger failed
+    # ═══════════════════════════════════════════════════════
+    if errors:
+        err_summary = "; ".join(errors)
+        print(f"\n   [WARN] {len(errors)} trigger(s) had errors: {err_summary}")
+        try: sb_insert("qrasm_recordings", {"student_name": "SYSTEM_ERROR", "assignment_id": "notifier", "instance_number": 0, "audio_url": f"Partial run errors: {err_summary}"})
+        except: pass
+    else:
+        print("\n   ✅ All triggers ran successfully")
 
     print("\n   === Done ===")
 
