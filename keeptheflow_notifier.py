@@ -562,6 +562,60 @@ def run():
         errors.append(f"T5: {e}")
 
     # ═══════════════════════════════════════════════════════
+    
+    # ══════════════════════════════════════════════════
+    # TRIGGER 6: Student Reports → notify admin
+    # ══════════════════════════════════════════════════
+    try:
+        print("\n   --- Trigger 6: Student Reports ---")
+        sent_reports = get_sent_keys("EMAIL_SENT_REPORT")
+        
+        # Targeted: only assignment_id = report
+        reports = sb_get_safe("qrasm_recordings",
+            "select=id,student_name,assignment_id,instance_number,grade,audio_url,created_at"
+            "&assignment_id=eq.report"
+            "&order=created_at.asc")
+        
+        report_count = 0
+        for r in reports:
+            # We use the DB id as the unique key to prevent duplicate emails
+            r_id = str(r.get("id"))
+            if r_id in sent_reports:
+                continue
+            
+            student = r.get("student_name", "Unknown Student")
+            message = r.get("grade") or "No message provided."
+            instance_url = r.get("audio_url") or "No URL provided."
+            
+            print(f"      [NEW] Report from {student}")
+            
+            html = email_wrap(f'''
+            <h2 style="color:#1e293b;margin-top:0;">🚩 Student Report</h2>
+            <p style="color:#475569;font-size:16px;">Student <strong>{student}</strong> reported an issue with a lesson instance.</p>
+            
+            <div style="background:#f1f5f9;padding:16px;border-radius:8px;margin:24px 0;border-left:4px solid #f43f5e;" dir="auto">
+                <h4 style="margin:0 0 8px 0;color:#0f172a;font-size:14px;text-transform:uppercase;letter-spacing:1px;">Student Message</h4>
+                <blockquote style="margin:0;color:#334155;font-size:16px;font-style:italic;" dir="auto">{message}</blockquote>
+            </div>
+            
+            <table width="100%" cellpadding="0" cellspacing="0" style="margin-top:32px;">
+                <tr><td align="center">
+                    <a href="{instance_url}" style="display:inline-block;padding:14px 32px;background:#c5a44e;color:#1a2744;text-decoration:none;font-weight:600;border-radius:99px;font-size:16px;">🔍 View the Instance</a>
+                </td></tr>
+            </table>
+            ''')
+            
+            text = f"Student Report from {student}\n\nMessage: {message}\n\nInstance URL: {instance_url}"
+            
+            if send_email(ADMIN_EMAIL, "KeepTheFlow Admin", f"🚩 Report from {student}", html, text):
+                mark_sent("EMAIL_SENT_REPORT", r_id)
+                report_count += 1
+                
+        print(f"      Processed {report_count} new report(s).")
+    except Exception as e:
+        print(f"   [ERROR] Trigger 6 failed: {e}")
+        errors.append(f"T6: {e}")
+
     # FINAL: Report errors if any trigger failed
     # ═══════════════════════════════════════════════════════
     if errors:
@@ -586,3 +640,4 @@ if __name__ == "__main__":
         try: sb_insert("qrasm_recordings", {"student_name": "SYSTEM_ERROR", "assignment_id": "notifier", "instance_number": 0, "audio_url": msg})
         except: pass
         sys.exit(1)
+
