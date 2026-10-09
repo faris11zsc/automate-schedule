@@ -587,27 +587,33 @@ def run():
             message = r.get("grade") or "No message provided."
             instance_url = r.get("audio_url") or "No URL provided."
             
-            print(f"      [NEW] Report from {student}")
+            is_quiz = ("quiz" in instance_url.lower()) or ("qm/" in instance_url.lower())
+            item_desc = "a quiz question" if is_quiz else "a lesson instance"
+            btn_label = "🔍 View Question in Quiz" if is_quiz else "🔍 View the Instance"
+            card_title = "🚩 Quiz Question Report" if is_quiz else "🚩 Student Report"
+            email_subject = f"🚩 Quiz Report from {student}" if is_quiz else f"🚩 Report from {student}"
+
+            print(f"      [NEW] {'Quiz ' if is_quiz else ''}Report from {student}")
             
             html = email_wrap(f'''
-            <h2 style="color:#1e293b;margin-top:0;">🚩 Student Report</h2>
-            <p style="color:#475569;font-size:16px;">Student <strong>{student}</strong> reported an issue with a lesson instance.</p>
+            <h2 style="color:#1e293b;margin-top:0;">{card_title}</h2>
+            <p style="color:#475569;font-size:16px;">Student <strong>{student}</strong> reported an issue with {item_desc}.</p>
             
             <div style="background:#f1f5f9;padding:16px;border-radius:8px;margin:24px 0;border-left:4px solid #f43f5e;" dir="auto">
-                <h4 style="margin:0 0 8px 0;color:#0f172a;font-size:14px;text-transform:uppercase;letter-spacing:1px;">Student Message</h4>
-                <blockquote style="margin:0;color:#334155;font-size:16px;font-style:italic;" dir="auto">{message}</blockquote>
+                <h4 style="margin:0 0 8px 0;color:#0f172a;font-size:14px;text-transform:uppercase;letter-spacing:1px;">Report Details</h4>
+                <blockquote style="margin:0;color:#334155;font-size:16px;white-space:pre-wrap;font-style:italic;" dir="auto">{message}</blockquote>
             </div>
             
             <table width="100%" cellpadding="0" cellspacing="0" style="margin-top:32px;">
                 <tr><td align="center">
-                    <a href="{instance_url}" style="display:inline-block;padding:14px 32px;background:#c5a44e;color:#1a2744;text-decoration:none;font-weight:600;border-radius:99px;font-size:16px;">🔍 View the Instance</a>
+                    <a href="{instance_url}" style="display:inline-block;padding:14px 32px;background:#c5a44e;color:#1a2744;text-decoration:none;font-weight:600;border-radius:99px;font-size:16px;">{btn_label}</a>
                 </td></tr>
             </table>
             ''')
             
-            text = f"Student Report from {student}\n\nMessage: {message}\n\nInstance URL: {instance_url}"
+            text = f"{card_title} from {student}\n\nMessage: {message}\n\nDirect URL: {instance_url}"
             
-            if send_email(ADMIN_EMAIL, "KeepTheFlow Admin", f"🚩 Report from {student}", html, text):
+            if send_email(ADMIN_EMAIL, "KeepTheFlow Admin", email_subject, html, text):
                 mark_sent("EMAIL_SENT_REPORT", r_id)
                 report_count += 1
                 
