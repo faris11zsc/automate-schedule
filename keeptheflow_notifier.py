@@ -49,6 +49,7 @@ SB_HEADERS = {
 PORTAL = "https://keep-the-flow.vercel.app"
 # ── ADD NEW LESSONS HERE (inside LESSON_PATHS, at the end of the dict) ──
 LESSON_PATHS = {
+    "disjointed_letters_lesson": "lessons/disjointed-letters-openers",
     "idgham_yw_7_12_lesson": "lessons/idgham-yw-7-12",
     "idgham_yw_lesson": "lessons/idgham-yw-5-12",
     "ghunnah_5_12_lesson": "lessons/ghunnah-5-12",
